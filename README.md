@@ -16,6 +16,8 @@ As a user you need to:
  * Paste in your desired temp file.  I do somethign like 'C:\patreon\deathnote_blahcreator.txt'
  * open up a powershell window in your working directory (C:\patreon)
  * >.\Clean-Patreon-PlayList-HTML.ps1 -FileName:C:\patreon\deathnote_blahcreator.txt
+   
        This will spit out a clean list of URLs.  Paste that into another file for the next portion (e.g. C:\patreon\deathnote_clean.txt)
  * >.\Download-Playlist-From-Patreon.ps1 -playlist C:\patreon\\deathnote_clean.txt
+
        This downloads using YT-DLP the entire collection at best video preference.
