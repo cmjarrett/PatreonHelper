@@ -12,7 +12,9 @@ As a user you need to:
  * Download the two scripts and place them in your working directory (C:\patreon for this example)
  * Login to Patreon using your browser of choice ( the scripts are configured for FireFox)
  * Go to the Collection you wish to download (https://www.patreon.com/collection/11111111111111?view=expanded)
- * Make Sure EVERY video you want to download is present on the page.  For Large Collections you will often have to hit 'expand' to load the entire collection.
+ * Make Sure EVERY video you want to download is visible on the page.
+        For Large Collections you will often have to hit 'expand' to load the entire collection.
+        For Mixed Collections you can use the Search/Filter part of the collection to narrow the videos if you don't want all of them
  * Press Ctrl+Shift+I to go to the 'Browser Inspector'
  * Right Click the top-level node and copy->Inner HTML
  * Paste in your desired temp file.  I do somethign like 'C:\patreon\deathnote_blahcreator.txt'
