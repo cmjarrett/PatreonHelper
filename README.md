@@ -38,7 +38,8 @@ As a user you need to:
  * >.\Clean-Patreon-PlayList-HTML.ps1 -FileName:C:\patreon\deathnote_blahcreator.txt
    
        This will spit out a clean list of URLs.  Paste that into another file for the next portion (e.g. C:\patreon\deathnote_clean.txt)
- * >.\Download-Playlist-From-Patreon.ps1 -playlist C:\patreon\\deathnote_clean.txt
+ * >.\Download-Playlist-From-Patreon.ps1 -FileName:C:\patreon\\deathnote_clean.txt -browser:firefox
 
        This downloads using YT-DLP the entire collection at best video preference.
-       If you need to use a different browser than Firefox replace FireFox in the script with your browser of choice.
+       If you need to use a different browser than Firefox replace FireFox in the script with your browser of choice.  
+       All browsers supported by YT-DLP are part of the possible inputs--you can use tab to complete.
