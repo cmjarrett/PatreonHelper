@@ -5,6 +5,8 @@ Helper for Patreon users
 This tool is intended to help mostly non-technical users make copies of patreon videos, in particular 'collections' of videos.
 There is one-time manual work of going to the Patreon Collection url and retrieving one inner Node from the Browser Inspector.
 
+You need to have this installed:
+YT-DLP
 
 As a user you need to:
  * Download the two scripts and place them in your working directory (C:\patreon for this example)
@@ -21,3 +23,4 @@ As a user you need to:
  * >.\Download-Playlist-From-Patreon.ps1 -playlist C:\patreon\\deathnote_clean.txt
 
        This downloads using YT-DLP the entire collection at best video preference.
+       If you need to use a different browser than Firefox replace FireFox in the script with your browser of choice.
