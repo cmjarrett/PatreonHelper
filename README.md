@@ -2,11 +2,14 @@
 Helper for Patreon users
 
 
-This tool is intended to help mostly non-technical users make copies of patreon videos, in particular 'collections' of videos.
+This tool is a wrapper around the YT-DLP tool is intended to help mostly non-technical users make copies of patreon videos.  
+This repo is mostly centered around 'collections' of videos, but the Download-Playlist-From-Patreon can perform simple bulk downloads.
+
 There is one-time manual work of going to the Patreon Collection url and retrieving one inner Node from the Browser Inspector.
 
 You need to have this installed:
-YT-DLP
+
+YT-DLP: https://github.com/yt-dlp/yt-dlp
 
 As a user you need to:
  * Download the two scripts and place them in your working directory
