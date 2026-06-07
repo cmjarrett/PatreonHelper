@@ -17,6 +17,9 @@ As a user you need to:
         For Mixed Collections you can use the Search/Filter part of the collection to narrow the videos if you don't want all of them
  * Press Ctrl+Shift+I to go to the 'Browser Inspector'
  * Right Click the top-level node and copy->Inner HTML
+     For users with little technical knowledge, in the Browser Inspector if you hover over a node with your mouse the element will be 'highlited'.
+     The Top-Level element is usually at the top of the page and is in a <HTML> right below <!DOCTYPE, Right-click the <HTML> node and the Copy->Inner HTML option is what you want
+     to grab all of the page
  * Paste in your desired temp file.  I do somethign like 'C:\patreon\deathnote_blahcreator.txt'
  * open up a powershell window in your working directory (C:\patreon)
  * >.\Clean-Patreon-PlayList-HTML.ps1 -FileName:C:\patreon\deathnote_blahcreator.txt
