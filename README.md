@@ -43,3 +43,32 @@ As a user you need to:
        This downloads using YT-DLP the entire collection at best video preference.
        If you need to use a different browser than Firefox replace FireFox in the script with your browser of choice.  
        All browsers supported by YT-DLP are part of the possible inputs--you can use tab to complete.
+
+
+## Reaction library tools
+
+For keeping a Plex/Jellyfin library of reaction videos (`<Library>/<Creator>/<Show>/<Show> - S01E08.ext`) fed from Patreon.
+Needs [yt-dlp](https://github.com/yt-dlp/yt-dlp) (`winget install yt-dlp.yt-dlp`) and Python 3.10+.
+
+### 1. Download a creator: `Download-Creator.ps1`
+```powershell
+.\Download-Creator.ps1 -Creator "Some Creator" -Url https://www.patreon.com/c/<name>/posts -Preview   # list only
+.\Download-Creator.ps1 -Creator "Some Creator" -Url https://www.patreon.com/c/<name>/posts
+.\Download-Creator.ps1 -Creator "Some Creator" -ListFile C:\patreon\show_clean.txt -Match "Show Name"
+```
+- `-Creator` is the folder name the videos belong to in your library; downloads go to `C:\patreon\inbox\<Creator>\`.
+- `-Url` (a creator's page) downloads **every post**, so it also works for creators without collections; posts without video are skipped. yt-dlp can't read collection pages, so for a collection use the cleaned URL list from `Clean-Patreon-PlayList-HTML.ps1` with `-ListFile`.
+- A shared download archive (`C:\patreon\downloaded.txt`) remembers what was fetched: subscribe, download, unsubscribe, and a later re-subscribe only gets new posts.
+- Optional: `-Match <regex>` (titles), `-After YYYYMMDD`, `-Browser` (default firefox), `-Inbox`, `-Archive`.
+
+### 2. File them: `reaction_rename.py`
+```powershell
+python .\reaction_rename.py --root "\nas\media\reaction" --src C:\patreon\inbox             # dry run
+python .\reaction_rename.py --root "\nas\media\reaction" --src C:\patreon\inbox --apply
+python .\reaction_rename.py --root "\nas\media\reaction" --tidy                             # rename what's already in the library
+```
+- Understands Patreon titles (`Show ｜ S2 x E12-15 ｜ Unedited Reaction [123]`, `Full Length ｜ Show ｜ 2x9`, `Episode 3`, `S01e08` …) and files them into the existing show folder, matching its naming and season folders.
+- **Never overwrites**; downloads whose episodes are already there (also as single-episode files) are skipped; movies, trailers, openings, odd ranges and unknown shows are listed for review and left alone.
+- The creator comes from the inbox folder (or `--creator`); `--new-shows` creates folders for shows the library doesn't have yet; creators with a `Movies` folder get `Movies\<title>.ext`.
+- Show-name aliases: copy `reaction-aliases.example.json` to `reaction-aliases.json` (git-ignored) and add your own, or pass `--aliases <file>`.
+- Tests: `python test_reaction_rename.py` (a throw-away fake library; touches nothing real).
