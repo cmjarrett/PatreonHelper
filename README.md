@@ -65,8 +65,8 @@ Needs [yt-dlp](https://github.com/yt-dlp/yt-dlp) (`winget install yt-dlp.yt-dlp`
 Library files are renamed (no post id left), so downloading a creator's whole feed would re-download everything you own.
 List the creator's posts (titles only, nothing downloaded) and compare them with the library first:
 ```powershell
-python .\reaction_gaps.py --root "\nas\media\reaction" --creator "Some Creator" --url https://www.patreon.com/c/<name>/posts --save-tsv posts.tsv
-python .\reaction_gaps.py --root "\nas\media\reaction" --creator "Some Creator" --from-tsv posts.tsv --show "Some Show"
+python .\reaction_gaps.py --root "\\nas\media\reaction" --creator "Some Creator" --url https://www.patreon.com/c/<name>/posts --save-tsv posts.tsv
+python .\reaction_gaps.py --root "\\nas\media\reaction" --creator "Some Creator" --from-tsv posts.tsv --show "Some Show"
 .\Download-Creator.ps1 -Creator "Some Creator" -ListFile gaps-missing.txt
 ```
 - Report per show: **have / missing / partial / new show / other** (movies, trailers); `gaps-missing.txt` holds only the posts to download, `gaps-review.txt` the ones to look at.
