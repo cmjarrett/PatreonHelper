@@ -1,0 +1,13 @@
+# Downloaded videos never belong in git
+*.mp4
+*.mkv
+*.webm
+*.m4v
+*.mov
+*.part
+*.ytdl
+# Local state and personal config
+downloaded.txt
+reaction-aliases.json
+*Temp
+__pycache__/
