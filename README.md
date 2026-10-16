@@ -61,6 +61,19 @@ Needs [yt-dlp](https://github.com/yt-dlp/yt-dlp) (`winget install yt-dlp.yt-dlp`
 - A shared download archive (`C:\patreon\downloaded.txt`) remembers what was fetched: subscribe, download, unsubscribe, and a later re-subscribe only gets new posts.
 - Optional: `-Match <regex>` (titles), `-After YYYYMMDD`, `-Browser` (default firefox), `-Inbox`, `-Archive`.
 
+### 1b. Complete a collection: find the gaps first, `reaction_gaps.py`
+Library files are renamed (no post id left), so downloading a creator's whole feed would re-download everything you own.
+List the creator's posts (titles only, nothing downloaded) and compare them with the library first:
+```powershell
+python .eaction_gaps.py --root "\nas\mediaeaction" --creator "Some Creator" --url https://www.patreon.com/c/<name>/posts --save-tsv posts.tsv
+python .eaction_gaps.py --root "\nas\mediaeaction" --creator "Some Creator" --from-tsv posts.tsv --show "Some Show"
+.\Download-Creator.ps1 -Creator "Some Creator" -ListFile gaps-missing.txt
+```
+- Report per show: **have / missing / partial / new show / other** (movies, trailers); `gaps-missing.txt` holds only the posts to download, `gaps-review.txt` the ones to look at.
+- `--include-partial` adds posts that are only partly in the library; `--list-file` takes a collection's URL list instead of `--url`.
+- `--seed-archive C:\patreon\downloaded.txt` writes the posts you already have into yt-dlp's download archive, so later full-creator runs skip them on their own.
+- Listing a big creator takes a while (yt-dlp reads each post); `--save-tsv` / `--from-tsv` avoid repeating it.
+
 ### 2. File them: `reaction_rename.py`
 ```powershell
 python .\reaction_rename.py --root "\nas\media\reaction" --src C:\patreon\inbox             # dry run
