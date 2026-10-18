@@ -213,6 +213,7 @@ def main():
     if a.seed_archive:
         have_ids = [r[2] for r in rows if r[0] == "have"]
         arch = Path(a.seed_archive)
+        arch.parent.mkdir(parents=True, exist_ok=True)       # first run, before Download-Creator created it
         existing = set(arch.read_text(encoding="utf-8").split("\n")) if arch.exists() else set()
         new = [f"patreon {i}" for i in have_ids if f"patreon {i}" not in existing]
         with open(arch, "a", encoding="utf-8") as fh:

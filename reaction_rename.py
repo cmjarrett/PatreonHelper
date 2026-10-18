@@ -42,11 +42,12 @@ EPISODE_PATTERNS = [
     # 2x9 / 1X08 / 4x15 / 2x3-4
     re.compile(r"\b(?P<s>\d{1,2})\s*[xX]\s*(?P<e1>\d{1,3})(?:\s*-\s*(?P<e2>\d{1,3}))?\b"),
     # Episode 3 / Ep 3 (season 1)
-    re.compile(r"\b(?:Episode|Ep\.?)\s*(?P<e1>\d{1,3})(?:\s*-\s*(?P<e2>\d{1,3}))?\b", re.I),
+    re.compile(r"\b(?:Episodes?|Ep\.?)\s*(?P<e1>\d{1,3})(?:\s*-\s*(?P<e2>\d{1,3}))?\b", re.I),
 ]
 # a segment that is only an (absolute) episode number: "| One Piece | 898 & 899", "| ONE PIECE | Reaction 612 & 613",
-# "| One Piece | 869 - 871"
-BARE_EPISODE = re.compile(r"^(?:reaction\s+)?(?P<e1>\d{1,4})(?:\s*(?P<sep>[&-])\s*(?P<e2>\d{1,4}))?$", re.I)
+# "| One Piece | 869 - 871", "| One Piece | 234, 235, 236"
+BARE_EPISODE = re.compile(r"^(?:reaction\s+)?(?P<e1>\d{1,4})(?P<more>(?:\s*,\s*\d{1,4})*)"
+                          r"(?:\s*,?\s*(?P<sep>[&-])\s*(?P<e2>\d{1,4}))?$", re.I)
 # a second episode joined with "&": "2x5 & 2x6", "3x1 & 3x2"
 AND_EPISODE = re.compile(r"^\s*&\s*(?:(?P<s>\d{1,2})\s*[xX]\s*)?(?P<e>\d{1,3})\b")
 FULL_LENGTH = re.compile(r"\bfull\s*len(?:g)?th\b|\bunedited\b", re.I)
@@ -104,8 +105,11 @@ def parse(filename):
     s = int(m.groupdict().get("s") or 1)
     e1 = int(m.group("e1"))
     e2 = int(m.group("e2")) if m.group("e2") else None
-    if m.re is BARE_EPISODE and m.group("sep") == "&" and e2 != e1 + 1:
-        return {"hint": hint, "special": True, "note": f"non-contiguous episodes ({e1} & {e2})"}
+    if m.re is BARE_EPISODE and (m.group("more") or m.group("sep") == "&"):   # a list: must be consecutive
+        nums = [int(n) for n in re.findall(r"\d+", m.group(0))]
+        if nums != list(range(e1, e1 + len(nums))):
+            return {"hint": hint, "special": True, "note": f"non-contiguous episodes ({', '.join(map(str, nums))})"}
+        e2 = nums[-1] if len(nums) > 1 else None
     a = AND_EPISODE.match(stem[m.end():]) if e2 is None else None
     if a and int(a.group("s") or s) == s:
         e2 = int(a.group("e"))
