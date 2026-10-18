@@ -15,6 +15,8 @@ Usage (dev PC, Firefox logged in to Patreon):
   python reaction_gaps.py ... --list-file C:\\patreon\\show_clean.txt          # a collection's URL list instead
   python reaction_gaps.py ... --from-tsv posts.tsv                              # reuse a saved listing (no network)
   python reaction_gaps.py ... --show "Vinland Saga" --seed-archive C:\\patreon\\downloaded.txt
+Movies (no episode number, not a trailer / OVA / special) are compared with <creator>/Movies; --include-movies
+puts the missing ones in the download list, --include-new the shows the library doesn't have yet.
 Only full reactions count: when a creator marks posts "Full Length" / "Unedited", their "Edited | ..." and short clip
 posts ("EPISODE TITLE | SHOW | Reaction 2x11") are skipped (--all-versions includes them).
 Listing a big creator takes a while (yt-dlp reads each post's metadata, ~1-2 s per post); progress is printed every
@@ -131,7 +133,14 @@ def classify(posts, root, creator, aliases, show_filter=None):
     for pid, title, url in posts:
         info = episode_info(title)
         if "season" not in info:
-            rows.append(("other", info.get("hint", ""), pid, title, url, info.get("note", "")))
+            if rr.is_movie(title, info):                   # compared with <creator>/Movies (years ignored)
+                if show_filter and rr.key(show_filter) != "movies":
+                    continue
+                name = rr.movie_title(title + ".mp4")
+                have = rr.movie_present(Path(root, creator, "Movies"), name)
+                rows.append(("have" if have else "missing", "Movies", pid, title, url, name))
+            else:
+                rows.append(("other", info.get("hint", ""), pid, title, url, info.get("note", "")))
             continue
         cands = rr.find_show(info["hint"], idx, aliases, creator)
         show = cands[0][1].name if len(cands) == 1 else (info["hint"] or "?")
@@ -168,6 +177,8 @@ def main():
     ap.add_argument("--include-new", action="store_true",
                     help="also put shows the library doesn't have yet in the missing list (import them with "
                          "reaction_rename.py --new-shows)")
+    ap.add_argument("--include-movies", action="store_true",
+                    help="also put movies missing from <creator>/Movies in the missing list")
     ap.add_argument("--all-versions", action="store_true",
                     help="also count edited / short posts (default: only 'Full Length' / 'Unedited' posts when the "
                          "creator marks any that way)")
@@ -205,14 +216,14 @@ def main():
                 print(f"   {k}: " + "; ".join(sorted(s[k])[:12]) + (" …" if len(s[k]) > 12 else ""))
 
     want = {"missing"} | ({"partial"} if a.include_partial else set()) | ({"new show"} if a.include_new else set())
-    missing = [r for r in rows if r[0] in want]
+    missing = [r for r in rows if r[0] in want and (r[1] != "Movies" or a.include_movies)]
     Path(f"{a.out}-missing.txt").write_text("".join(r[4] + "\n" for r in missing), encoding="utf-8")
     others = [r for r in rows if r[0] in ("other", "new show", "ambiguous") and r[0] not in want]
     Path(f"{a.out}-review.txt").write_text("".join(f"{r[0]}\t{r[3]}\t{r[4]}\n" for r in others), encoding="utf-8")
     print(f"\n{len(missing)} posts to download -> {a.out}-missing.txt   ({len(others)} to look at -> {a.out}-review.txt)")
     print(f'Next: .\\Download-Creator.ps1 -Creator "{a.creator}" -ListFile {a.out}-missing.txt')
-    if a.include_new:
-        print("      then import with reaction_rename.py --src <downloads> --new-shows (creates the new show folders)")
+    if a.include_new or a.include_movies:
+        print("      then import with reaction_rename.py --src <downloads> --new-shows (creates new show / Movies folders)")
 
     if a.seed_archive:
         have_ids = [r[2] for r in rows if r[0] == "have"]

@@ -54,6 +54,20 @@ check("subtitle before episode", ep("I RAISED THAT BOY ｜ KAGUYA SAMA ｜ Love 
 check("2x5 & 2x6", ep("Edited ｜ Frieren ｜ 2x5 & 2x6.mp4"), ("Frieren", 2, 5, 6, False))
 check("absolute & pair", ep("Full Length ｜ One Piece ｜ 898 & 899.mp4"), ("One Piece", 1, 898, 899, False))
 check("absolute range", ep("Full Length ｜ One Piece ｜ 869 - 871.mp4"), ("One Piece", 1, 869, 871, False))
+check("Season N Episodes", ep("Squid Game ｜ Season 2 Episodes 1-4 ｜ Unedited Reaction.mp4"), ("Squid Game", 2, 1, 4, False))
+check("Book Two", ep("Avatar： The Last Airbender ｜ Book Two： Episodes 5-8 ｜ Unedited Reaction.mp4"), ("Avatar", 2, 5, 8, False))
+check("Book One: 13-15", ep("Avatar： The Last Airbender ｜ Book One： 13-15 ｜ Unedited Reaction.mp4"), ("Avatar", 1, 13, 15, False))
+check("non-contiguous is not a movie", rr.is_movie("Full Length ｜ One Piece ｜ 894 & 897",
+      rr.parse("Full Length ｜ One Piece ｜ 894 & 897.mp4")), False)
+check("movie title tags dropped", rr.movie_title("Spirited Away ｜ Patreon Exclusive ｜ Unedited Reaction.mp4"), "Spirited Away")
+check("Episodes 1 + 2", ep("Jessica Jones ｜ Season 1 Episodes 1 + 2 ｜ Unedited Reaction.mp4"), ("Jessica Jones", 1, 1, 2, False))
+check("range + gap", ep("The Apothecary Diaries ｜ Season 2 Episodes 8-10 + 12 ｜ Unedited Reaction.mp4")[0], "review")
+check("range + next", ep("Show ｜ Season 1 Episodes 8-10 + 11.mp4"), ("Show", 1, 8, 11, False))
+check("movie title: all segments", rr.movie_title("Full Length ｜ Haikyuu ｜ The Dumpster Battle.mp4"), "Haikyuu - The Dumpster Battle")
+check("movie title: 'The Movie' dropped", rr.movie_title("Full Length ｜ Violet Evergarden ｜ The Movie.mp4"), "Violet Evergarden")
+check("is_movie", [rr.is_movie(t, rr.parse(t + ".mp4")) for t in ("Interstellar ｜ Unedited Reaction",
+      "Infinity Castle ｜ Trailer Reaction", "Full Length ｜ Haikyuu ｜ OVA Lev Appears", "Full Length ｜ Haikyuu ｜ 4x15")],
+      [True, False, False, False])
 check("absolute triple", ep("Full Length ｜ One Piece ｜ 234, 235, 236.mp4"), ("One Piece", 1, 234, 236, False))
 check("Episodes N & M", ep("Full Length ｜ One Piece ｜ Episodes 17 & 18.mp4"), ("One Piece", 1, 17, 18, False))
 check("list with a gap", ep("Full Length ｜ One Piece ｜ 55, 61 & 62.mp4")[0], "review")
@@ -136,6 +150,11 @@ with tempfile.TemporaryDirectory() as tmp:
     run("--src", str(nc), "--new-shows", "--apply")
     check("--new-shows --apply placed it", Path(root, "New Creator", "Frieren", "Frieren - S01E05.mp4").exists(), True)
     check("movie --apply placed it", Path(root, "Movie Creator", "Movies", "Dune - Part Two (2024).mp4").exists(), True)
+    Path(nc, "New Creator", "Interstellar ｜ Unedited Reaction [10].mp4").write_bytes(b"xx")
+    Path(nc, "New Creator", "Infinity Castle ｜ Trailer Reaction [11].mp4").write_bytes(b"xx")
+    out = run("--src", str(nc), "--new-shows").replace("\\", "/")
+    check("--new-shows: movie -> new Movies folder", "New Creator/Movies/Interstellar.mp4" in out, True)
+    check("--new-shows: trailer stays review", "New Creator/Movies/Infinity Castle" not in out, True)
 
     out = run("--tidy")
     o = out.replace("\\", "/")
