@@ -24,6 +24,7 @@ again with the same --save-tsv, and a later run with --url only reads posts that
 import argparse
 import csv
 import json
+import os
 import re
 import subprocess
 import sys
@@ -62,8 +63,9 @@ def list_posts(url=None, list_file=None, browser="firefox", save_tsv=None, every
     """
     posts = read_tsv(save_tsv)
     known = {p[0] for p in posts}
+    # --encoding: on Windows, yt-dlp writes a pipe in the console code page ("×" -> byte 0xD7), not UTF-8
     cmd = ["yt-dlp", "--cookies-from-browser", browser, "--simulate", "--ignore-errors", "--no-warnings",
-           "--print", "%(id)s\t%(title)s\t%(webpage_url)s"]
+           "--encoding", "utf-8", "--print", "%(id)s\t%(title)s\t%(webpage_url)s"]
     archive = None
     if known:
         archive = Path(f"{save_tsv}.known")
@@ -76,7 +78,9 @@ def list_posts(url=None, list_file=None, browser="firefox", save_tsv=None, every
     out = open(save_tsv, "a", encoding="utf-8", newline="") if save_tsv else None
     writer = csv.writer(out, delimiter="\t") if out else None
     with open(err_path, "w", encoding="utf-8") as err:
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=err, text=True, encoding="utf-8", bufsize=1)
+        env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=err, text=True, encoding="utf-8",
+                                errors="replace", bufsize=1, env=env)   # a stray byte never stops the listing
         try:
             for line in proc.stdout:
                 parts = line.rstrip("\n").split("\t")
