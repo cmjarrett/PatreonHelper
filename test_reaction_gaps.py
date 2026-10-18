@@ -64,6 +64,12 @@ with tempfile.TemporaryDirectory() as tmp:
                         capture_output=True, text=True, encoding="utf-8")
     m2 = Path(f"{out}-missing.txt").read_text(encoding="utf-8").split()
     check("--show + --include-partial", m2, ["https://www.patreon.com/posts/105"])
+    subprocess.run([sys.executable, str(HERE / "reaction_gaps.py"), "--root", str(root), "--creator", "Creator A",
+                    "--from-tsv", str(tsv), "--out", str(out), "--all-versions", "--include-new"],
+                   capture_output=True, text=True, encoding="utf-8")
+    check("--include-new adds the new show", "https://www.patreon.com/posts/106" in
+          Path(f"{out}-missing.txt").read_text(encoding="utf-8").split(), True)
+    check("--include-new: new show not in review", "Mr. Robot" in Path(f"{out}-review.txt").read_text(encoding="utf-8"), False)
     # default: only full-length posts count when the creator marks them; edited / short versions are skipped
     tsv2 = Path(tmp, "versions.tsv")
     tsv2.write_text("".join("\t".join(p) + "\n" for p in [

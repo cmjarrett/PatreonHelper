@@ -56,6 +56,8 @@ check("absolute & pair", ep("Full Length ｜ One Piece ｜ 898 & 899.mp4"), ("On
 check("absolute range", ep("Full Length ｜ One Piece ｜ 869 - 871.mp4"), ("One Piece", 1, 869, 871, False))
 check("absolute non-contiguous", ep("Full Length ｜ One Piece ｜ 894 & 897.mp4")[0], "review")
 check("Full Lenth typo + Ep", ep("Full Lenth ｜ Erased ｜ Ep 7.mp4"), ("Erased", 1, 7, None, False))
+check("live action is its own show", ep("Full Length ｜ One Piece ｜ Live Action 2x1.mp4"), ("One Piece Live Action", 2, 1, None, False))
+check("live action short post", ep("SHE'S HERE ｜ ONE PIECE ｜ 2x1 Live Action Reaction.mp4"), ("ONE PIECE Live Action", 2, 1, None, False))
 check("number in show name", ep("Full Length ｜ Mob Psycho 100 ｜ OVA Special.mp4")[0], "review")
 check("full length", [rr.is_full_length(t) for t in ("Full Length ｜ Haikyuu ｜ 4x15", "Full Lenth ｜ Erased ｜ Ep 7",
       "Demon Slayer ｜ S1 x E13-16 ｜ Unedited Reaction", "Edited ｜ Frieren ｜ 2x5 & 2x6", "THE BOSS ｜ MOB PSYCHO 100 ｜ Reaction 2x11")],

@@ -93,6 +93,8 @@ def parse(filename):
             hint = p2
             break
     hint = re.split(r"\s*:\s*", hint)[0].strip()             # "Demon Slayer: Kimetsu no Yaiba" -> "Demon Slayer"
+    if re.search(r"\blive[\s-]*action\b", stem, re.I) and not re.search(r"live[\s-]*action", hint, re.I):
+        hint += " Live Action"                                # "One Piece | Live Action 2x1": not the anime
     hint = re.sub(r"\s+-\s*$", "", hint)
     if not m:
         return {"hint": hint, "special": True, "note": "no episode number (movie/trailer/opening?)"}
