@@ -48,6 +48,18 @@ check("S01E06 no id", ep("Jujutsu Kaisen ｜ S01E06.mp4"), ("Jujutsu Kaisen", 1,
 check("JJK 2x15", ep("JJK 2x15 [111750545].mp4"), ("JJK", 2, 15, None, False))
 check("Loki unpadded", ep("Loki - S02E3-4.mp4"), ("Loki", 2, 3, 4, False))
 check("Dumpster Battle", ep("Full Length ｜ Haikyuu ｜ The Dumpster Battle [168692595].mp4")[0], "review")
+check("episode title first", ep("THE BOSS ｜ MOB PSYCHO 100 ｜ Reaction 2x11 [1].mp4"), ("MOB PSYCHO 100", 2, 11, None, False))
+check("empty first segment", ep("｜ CODE GEASS ｜ Reaction 1x10.mp4"), ("CODE GEASS", 1, 10, None, False))
+check("subtitle before episode", ep("I RAISED THAT BOY ｜ KAGUYA SAMA ｜ Love Is War Reaction 1x5.mp4"), ("KAGUYA SAMA", 1, 5, None, False))
+check("2x5 & 2x6", ep("Edited ｜ Frieren ｜ 2x5 & 2x6.mp4"), ("Frieren", 2, 5, 6, False))
+check("absolute & pair", ep("Full Length ｜ One Piece ｜ 898 & 899.mp4"), ("One Piece", 1, 898, 899, False))
+check("absolute range", ep("Full Length ｜ One Piece ｜ 869 - 871.mp4"), ("One Piece", 1, 869, 871, False))
+check("absolute non-contiguous", ep("Full Length ｜ One Piece ｜ 894 & 897.mp4")[0], "review")
+check("Full Lenth typo + Ep", ep("Full Lenth ｜ Erased ｜ Ep 7.mp4"), ("Erased", 1, 7, None, False))
+check("number in show name", ep("Full Length ｜ Mob Psycho 100 ｜ OVA Special.mp4")[0], "review")
+check("full length", [rr.is_full_length(t) for t in ("Full Length ｜ Haikyuu ｜ 4x15", "Full Lenth ｜ Erased ｜ Ep 7",
+      "Demon Slayer ｜ S1 x E13-16 ｜ Unedited Reaction", "Edited ｜ Frieren ｜ 2x5 & 2x6", "THE BOSS ｜ MOB PSYCHO 100 ｜ Reaction 2x11")],
+      [True, True, True, False, False])
 check("conventional", ep("Demon Slayer - S02E09.mp4"), "conventional")
 check("conventional title", ep("The Last Of Us - S01E03 - Long, Long Time.mp4"), "conventional")
 check("conventional range", ep("Jujutsu Kaisen - S03E11-12.mp4"), "conventional")

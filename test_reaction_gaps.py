@@ -44,7 +44,7 @@ with tempfile.TemporaryDirectory() as tmp:
     arch.write_text("patreon 104\n", encoding="utf-8")
     out = Path(tmp, "gaps")
     r = subprocess.run([sys.executable, str(HERE / "reaction_gaps.py"), "--root", str(root), "--creator", "Creator A",
-                        "--from-tsv", str(tsv), "--out", str(out), "--seed-archive", str(arch)],
+                        "--from-tsv", str(tsv), "--out", str(out), "--seed-archive", str(arch), "--all-versions"],
                        capture_output=True, text=True, encoding="utf-8")
     print(r.stdout if fails else "", r.stderr[-800:])
     missing = Path(f"{out}-missing.txt").read_text(encoding="utf-8").split()
@@ -64,6 +64,23 @@ with tempfile.TemporaryDirectory() as tmp:
                         capture_output=True, text=True, encoding="utf-8")
     m2 = Path(f"{out}-missing.txt").read_text(encoding="utf-8").split()
     check("--show + --include-partial", m2, ["https://www.patreon.com/posts/105"])
+    # default: only full-length posts count when the creator marks them; edited / short versions are skipped
+    tsv2 = Path(tmp, "versions.tsv")
+    tsv2.write_text("".join("\t".join(p) + "\n" for p in [
+        ("201", "Full Length ｜ Vinland Saga ｜ 1x5", "https://www.patreon.com/posts/201"),
+        ("202", "Edited ｜ Vinland Saga ｜ 1x6", "https://www.patreon.com/posts/202"),
+        ("203", "WHAT IS HE DOING?! ｜ VINLAND SAGA ｜ Reaction 1x7", "https://www.patreon.com/posts/203"),
+    ]), encoding="utf-8")
+    r3 = subprocess.run([sys.executable, str(HERE / "reaction_gaps.py"), "--root", str(root), "--creator", "Creator A",
+                         "--from-tsv", str(tsv2), "--out", str(out)], capture_output=True, text=True, encoding="utf-8")
+    check("only the full-length post is missing", Path(f"{out}-missing.txt").read_text(encoding="utf-8").split(),
+          ["https://www.patreon.com/posts/201"])
+    check("skipped versions reported", "2 edited / short posts skipped" in r3.stdout, True)
+    r4 = subprocess.run([sys.executable, str(HERE / "reaction_gaps.py"), "--root", str(root), "--creator", "Creator A",
+                         "--from-tsv", str(tsv2), "--out", str(out), "--all-versions"], capture_output=True, text=True, encoding="utf-8")
+    check("--all-versions counts them (show from the segment before the episode)",
+          sorted(Path(f"{out}-missing.txt").read_text(encoding="utf-8").split()),
+          [f"https://www.patreon.com/posts/{i}" for i in (201, 202, 203)])
 
 # Streaming listing + resume, with a fake yt-dlp on PATH (POSIX only: Windows won't run a script named "yt-dlp")
 if sys.platform != "win32":

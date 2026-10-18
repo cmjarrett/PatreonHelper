@@ -15,6 +15,8 @@ Usage (dev PC, Firefox logged in to Patreon):
   python reaction_gaps.py ... --list-file C:\\patreon\\show_clean.txt          # a collection's URL list instead
   python reaction_gaps.py ... --from-tsv posts.tsv                              # reuse a saved listing (no network)
   python reaction_gaps.py ... --show "Vinland Saga" --seed-archive C:\\patreon\\downloaded.txt
+Only full reactions count: when a creator marks posts "Full Length" / "Unedited", their "Edited | ..." and short clip
+posts ("EPISODE TITLE | SHOW | Reaction 2x11") are skipped (--all-versions includes them).
 Listing a big creator takes a while (yt-dlp reads each post's metadata, ~1-2 s per post); progress is printed every
 25 posts. With --save-tsv each post is saved as it arrives: an interrupted run resumes where it stopped when started
 again with the same --save-tsv, and a later run with --url only reads posts that are new since then.
@@ -159,6 +161,9 @@ def main():
     ap.add_argument("--out", default="gaps", help="prefix for the output files (default: gaps)")
     ap.add_argument("--seed-archive", help="append 'patreon <id>' for posts you already have to this yt-dlp archive")
     ap.add_argument("--include-partial", action="store_true", help="also put partly-present posts in the missing list")
+    ap.add_argument("--all-versions", action="store_true",
+                    help="also count edited / short posts (default: only 'Full Length' / 'Unedited' posts when the "
+                         "creator marks any that way)")
     ap.add_argument("--browser", default="firefox")
     ap.add_argument("--aliases", default=None)
     a = ap.parse_args()
@@ -172,11 +177,18 @@ def main():
     else:
         posts = list_posts(a.url, a.list_file, a.browser, a.save_tsv)   # appends to --save-tsv as it goes
 
+    skipped = []
+    if not a.all_versions and any(rr.is_full_length(t) for _, t, _ in posts):
+        skipped = [p for p in posts if not rr.is_full_length(p[1])]
+        posts = [p for p in posts if rr.is_full_length(p[1])]
     rows = classify(posts, a.root, a.creator, aliases, a.show)
     by_show = defaultdict(lambda: defaultdict(list))
     for status, show, pid, title, url, note in rows:
         by_show[show][status].append((note or title))
-    print(f"{len(posts)} posts listed for {a.creator}\n")
+    print(f"{len(posts)} full-length posts listed for {a.creator}" if skipped else f"{len(posts)} posts listed for {a.creator}")
+    if skipped:
+        print(f"   ({len(skipped)} edited / short posts skipped; --all-versions to include them)")
+    print()
     for show in sorted(by_show, key=str.lower):
         s = by_show[show]
         counts = ", ".join(f"{k} {len(v)}" for k, v in sorted(s.items()))

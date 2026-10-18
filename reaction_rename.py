@@ -33,7 +33,7 @@ from pathlib import Path
 VIDEO = {".mp4", ".mkv", ".m4v", ".avi", ".webm", ".mov"}
 CONVENTIONAL = re.compile(r" - S\d{2}E\d{2}(?:-\d{2})?(?: - .+)?$")
 FULLWIDTH = {"｜": "|", "：": ":", "⧸": "/", "／": "/", "×": "x", "＆": "&", "？": "?", "！": "!", "＂": '"', "＇": "'"}
-NOISE = re.compile(r"\b(full length|unedited reaction|reaction|unedited|finale|\[finale\])\b", re.I)
+NOISE = re.compile(r"\b(full\s*len(?:g)?th|unedited reaction|reaction|unedited|edited|finale|\[finale\])\b", re.I)
 EPISODE_PATTERNS = [
     # S2 x E12-15 / S4 X E5-7 / S1 x E13-16
     re.compile(r"\bS(?P<s>\d{1,2})\s*[xX]\s*E(?P<e1>\d{1,3})(?:\s*-\s*E?(?P<e2>\d{1,3}))?\b"),
@@ -44,6 +44,12 @@ EPISODE_PATTERNS = [
     # Episode 3 / Ep 3 (season 1)
     re.compile(r"\b(?:Episode|Ep\.?)\s*(?P<e1>\d{1,3})(?:\s*-\s*(?P<e2>\d{1,3}))?\b", re.I),
 ]
+# a segment that is only an (absolute) episode number: "| One Piece | 898 & 899", "| ONE PIECE | Reaction 612 & 613",
+# "| One Piece | 869 - 871"
+BARE_EPISODE = re.compile(r"^(?:reaction\s+)?(?P<e1>\d{1,4})(?:\s*(?P<sep>[&-])\s*(?P<e2>\d{1,4}))?$", re.I)
+# a second episode joined with "&": "2x5 & 2x6", "3x1 & 3x2"
+AND_EPISODE = re.compile(r"^\s*&\s*(?:(?P<s>\d{1,2})\s*[xX]\s*)?(?P<e>\d{1,3})\b")
+FULL_LENGTH = re.compile(r"\bfull\s*len(?:g)?th\b|\bunedited\b", re.I)
 SPECIAL_WORDS = re.compile(r"\b(movie|film|trailer|opening|ending|ova|special|recap|teaser)\b|\bop\s*/\s*ed\b|\+", re.I)
 
 
@@ -66,18 +72,23 @@ def parse(filename):
     stem = re.sub(r"\s*\[\d{6,}\]\s*$", "", stem)            # Patreon post id
     if CONVENTIONAL.search(stem) and not re.search(r"E\d{2}-\d(?!\d)", stem):
         return None                                           # already conventional
+    parts = [p.strip() for p in re.split(r"\s*\|\s*", stem) if p.strip()]
     m = None
     for pat in EPISODE_PATTERNS:
         m = pat.search(stem)
         if m:
             break
-    parts = [p.strip() for p in re.split(r"\s*\|\s*", stem) if p.strip()]
-    # show hint: the first segment that isn't noise and isn't the episode token
+    if not m:
+        m = next((b for b in (BARE_EPISODE.match(p) for p in parts[1:]) if b), None)
+    # show hint: the nearest segment BEFORE the episode one that isn't noise ("EPISODE TITLE | SHOW | Reaction 2x11"
+    # and "Full Length | SHOW | 2x11" both give SHOW), else the episode segment itself ("JJK 2x15"), else the rest
+    ep_idx = next((i for i, p in enumerate(parts) if m and m.group(0) in p), None)
+    order = list(range(len(parts))) if ep_idx is None else \
+        list(range(ep_idx - 1, -1, -1)) + [ep_idx] + list(range(ep_idx + 1, len(parts)))
     hint = ""
-    for p in parts:
-        p2 = NOISE.sub("", p).strip(" -:")
-        if m and m.group(0) in p:
-            p2 = p2.replace(m.group(0), "").strip(" -:")
+    for i in order:
+        p2 = parts[i].replace(m.group(0), "") if i == ep_idx else parts[i]
+        p2 = NOISE.sub("", p2).strip(" -:")
         if p2:
             hint = p2
             break
@@ -91,10 +102,23 @@ def parse(filename):
     s = int(m.groupdict().get("s") or 1)
     e1 = int(m.group("e1"))
     e2 = int(m.group("e2")) if m.group("e2") else None
+    if m.re is BARE_EPISODE and m.group("sep") == "&" and e2 != e1 + 1:
+        return {"hint": hint, "special": True, "note": f"non-contiguous episodes ({e1} & {e2})"}
+    a = AND_EPISODE.match(stem[m.end():]) if e2 is None else None
+    if a and int(a.group("s") or s) == s:
+        e2 = int(a.group("e"))
+        if e2 != e1 + 1:
+            return {"hint": hint, "special": True, "note": f"non-contiguous episodes (E{e1} & E{e2})"}
     if e2 is not None and e2 <= e1:
         return {"hint": hint, "special": True, "note": f"odd range E{e1}-{e2}"}
     return {"hint": hint, "season": s, "e1": e1, "e2": e2, "special": special,
             "note": "title has special-sounding words, check" if special else ""}
+
+
+def is_full_length(title):
+    """Posts marked as the full reaction ("Full Length", "Unedited"), not "Edited | ..." or short clip posts."""
+    t = normalize(title)
+    return bool(FULL_LENGTH.search(t)) and not re.match(r"\s*edited\b", t, re.I)
 
 
 def library_index(root, aliases=None):
