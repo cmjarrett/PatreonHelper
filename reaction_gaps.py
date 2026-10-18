@@ -15,7 +15,9 @@ Usage (dev PC, Firefox logged in to Patreon):
   python reaction_gaps.py ... --list-file C:\\patreon\\show_clean.txt          # a collection's URL list instead
   python reaction_gaps.py ... --from-tsv posts.tsv                              # reuse a saved listing (no network)
   python reaction_gaps.py ... --show "Vinland Saga" --seed-archive C:\\patreon\\downloaded.txt
-Listing a big creator takes a while (yt-dlp reads each post's metadata); --save-tsv keeps it for re-runs.
+Listing a big creator takes a while (yt-dlp reads each post's metadata, ~1-2 s per post); progress is printed every
+25 posts. With --save-tsv each post is saved as it arrives: an interrupted run resumes where it stopped when started
+again with the same --save-tsv, and a later run with --url only reads posts that are new since then.
 """
 import argparse
 import csv
@@ -32,19 +34,76 @@ import reaction_rename as rr  # noqa: E402
 CONVENTIONAL_EP = re.compile(r" - S(\d{2})E(\d{2})(?:-E?(\d{2}))?")
 
 
-def list_posts(url=None, list_file=None, browser="firefox"):
-    """[(id, title, url)] via yt-dlp metadata only (no download)."""
+def read_tsv(path):
+    if not path or not Path(path).exists():
+        return []
+    with open(path, encoding="utf-8", newline="") as fh:
+        return [tuple(r) for r in csv.reader(fh, delimiter="\t") if len(r) == 3]
+
+
+def kill_tree(proc):
+    """Stop yt-dlp and its children (on Windows, yt-dlp from pip runs as a python.exe child)."""
+    if proc.poll() is not None:
+        return
+    if sys.platform == "win32":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
+    else:
+        proc.terminate()
+
+
+def list_posts(url=None, list_file=None, browser="firefox", save_tsv=None, every=25):
+    """[(id, title, url)] via yt-dlp metadata only (no download).
+
+    Streams yt-dlp's output: prints progress every `every` posts and appends each post to `save_tsv` as it
+    arrives, so an interrupted or failed listing keeps what it has. With an existing `save_tsv` it resumes:
+    posts already in it are skipped by yt-dlp (fed to it as a download archive), and later runs only read new posts.
+    """
+    posts = read_tsv(save_tsv)
+    known = {p[0] for p in posts}
     cmd = ["yt-dlp", "--cookies-from-browser", browser, "--simulate", "--ignore-errors", "--no-warnings",
            "--print", "%(id)s\t%(title)s\t%(webpage_url)s"]
+    archive = None
+    if known:
+        archive = Path(f"{save_tsv}.known")
+        archive.write_text("".join(f"patreon {i}\n" for i in sorted(known)), encoding="utf-8")
+        cmd += ["--download-archive", str(archive)]
+        print(f"resuming: {len(known)} posts already in {save_tsv}, reading only the rest", file=sys.stderr, flush=True)
     cmd += [url] if url else ["-a", list_file]
-    out = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
-    posts = []
-    for line in out.stdout.splitlines():
-        parts = line.split("\t")
-        if len(parts) == 3 and parts[0] not in ("NA", ""):
-            posts.append(tuple(parts))
+    err_path = Path(f"{save_tsv or 'gaps'}.yt-dlp.log")
+    new = 0
+    out = open(save_tsv, "a", encoding="utf-8", newline="") if save_tsv else None
+    writer = csv.writer(out, delimiter="\t") if out else None
+    with open(err_path, "w", encoding="utf-8") as err:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=err, text=True, encoding="utf-8", bufsize=1)
+        try:
+            for line in proc.stdout:
+                parts = line.rstrip("\n").split("\t")
+                if len(parts) != 3 or parts[0] in ("NA", "") or parts[0] in known:
+                    continue
+                post = tuple(parts)
+                posts.append(post)
+                known.add(post[0])
+                new += 1
+                if writer:
+                    writer.writerow(post)
+                    out.flush()
+                if new % every == 0:
+                    print(f"  {new} posts read ...", file=sys.stderr, flush=True)
+            proc.wait()
+        except KeyboardInterrupt:
+            kill_tree(proc)
+            print(f"\ninterrupted after {new} new posts" + (f"; they're saved in {save_tsv}: run the same command "
+                  "again to resume" if save_tsv else " (use --save-tsv to keep progress)"), file=sys.stderr)
+            sys.exit(130)
+        finally:
+            if out:
+                out.close()
+            if archive and archive.exists():
+                archive.unlink()
     if not posts:
-        sys.exit(f"yt-dlp listed no posts (exit {out.returncode}): {out.stderr.strip()[-400:]}")
+        tail = err_path.read_text(encoding="utf-8", errors="replace").strip()[-400:]
+        sys.exit(f"yt-dlp listed no posts (exit {proc.returncode}): {tail}")
+    print(f"  listing done: {new} new posts ({len(posts)} total)", file=sys.stderr, flush=True)
     return posts
 
 
@@ -109,13 +168,9 @@ def main():
     aliases = {rr.key(k): v for k, v in json.loads(alias_file.read_text(encoding="utf-8")).items()} if alias_file.exists() else {}
 
     if a.from_tsv:
-        with open(a.from_tsv, encoding="utf-8", newline="") as fh:
-            posts = [tuple(r) for r in csv.reader(fh, delimiter="\t") if len(r) == 3]
+        posts = read_tsv(a.from_tsv)
     else:
-        posts = list_posts(a.url, a.list_file, a.browser)
-    if a.save_tsv:
-        with open(a.save_tsv, "w", encoding="utf-8", newline="") as fh:
-            csv.writer(fh, delimiter="\t").writerows(posts)
+        posts = list_posts(a.url, a.list_file, a.browser, a.save_tsv)   # appends to --save-tsv as it goes
 
     rows = classify(posts, a.root, a.creator, aliases, a.show)
     by_show = defaultdict(lambda: defaultdict(list))

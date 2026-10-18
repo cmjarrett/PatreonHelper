@@ -11,3 +11,9 @@ downloaded.txt
 reaction-aliases.json
 *Temp
 __pycache__/
+# Gap finder output: listings, reports, logs (they name creators and posts)
+*.tsv
+*.tsv.known
+*.yt-dlp.log
+gaps-missing.txt
+gaps-review.txt

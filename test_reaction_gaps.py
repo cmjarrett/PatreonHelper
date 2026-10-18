@@ -65,5 +65,33 @@ with tempfile.TemporaryDirectory() as tmp:
     m2 = Path(f"{out}-missing.txt").read_text(encoding="utf-8").split()
     check("--show + --include-partial", m2, ["https://www.patreon.com/posts/105"])
 
+# Streaming listing + resume, with a fake yt-dlp on PATH (POSIX only: Windows won't run a script named "yt-dlp")
+if sys.platform != "win32":
+    import os
+    with tempfile.TemporaryDirectory() as tmp:
+        fake = Path(tmp, "yt-dlp")
+        # prints three posts, skipping ids listed in a --download-archive file (like yt-dlp does)
+        fake.write_text(f"""#!{sys.executable}
+import sys
+args = sys.argv[1:]
+skip = set()
+if "--download-archive" in args:
+    skip = {{l.split()[1] for l in open(args[args.index("--download-archive") + 1]) if l.strip()}}
+for i in ("201", "202", "203"):
+    if i not in skip:
+        print(f"{{i}}\\tShow ｜ 1x{{i[-1]}}\\thttps://www.patreon.com/posts/{{i}}", flush=True)
+""", encoding="utf-8")
+        fake.chmod(0o755)
+        os.environ["PATH"] = tmp + os.pathsep + os.environ["PATH"]
+        sys.path.insert(0, str(HERE))
+        import reaction_gaps as rg
+        tsv = Path(tmp, "listing.tsv")
+        tsv.write_text("201\tShow ｜ 1x1\thttps://www.patreon.com/posts/201\n", encoding="utf-8")   # an earlier, interrupted run
+        posts = rg.list_posts(url="https://example.invalid/posts", save_tsv=str(tsv), every=1)
+        check("resume keeps the earlier post and adds the rest", [p[0] for p in posts], ["201", "202", "203"])
+        check("tsv holds every post once", [l.split("\t")[0] for l in tsv.read_text(encoding="utf-8").splitlines()],
+              ["201", "202", "203"])
+        check("temporary archive removed", Path(f"{tsv}.known").exists(), False)
+
 print(f"\n{'ALL PASSED' if not fails else str(fails) + ' FAILED'}")
 sys.exit(1 if fails else 0)
