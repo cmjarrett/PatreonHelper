@@ -161,6 +161,9 @@ def main():
     ap.add_argument("--out", default="gaps", help="prefix for the output files (default: gaps)")
     ap.add_argument("--seed-archive", help="append 'patreon <id>' for posts you already have to this yt-dlp archive")
     ap.add_argument("--include-partial", action="store_true", help="also put partly-present posts in the missing list")
+    ap.add_argument("--include-new", action="store_true",
+                    help="also put shows the library doesn't have yet in the missing list (import them with "
+                         "reaction_rename.py --new-shows)")
     ap.add_argument("--all-versions", action="store_true",
                     help="also count edited / short posts (default: only 'Full Length' / 'Unedited' posts when the "
                          "creator marks any that way)")
@@ -197,13 +200,15 @@ def main():
             if s.get(k):
                 print(f"   {k}: " + "; ".join(sorted(s[k])[:12]) + (" …" if len(s[k]) > 12 else ""))
 
-    want = {"missing"} | ({"partial"} if a.include_partial else set())
+    want = {"missing"} | ({"partial"} if a.include_partial else set()) | ({"new show"} if a.include_new else set())
     missing = [r for r in rows if r[0] in want]
     Path(f"{a.out}-missing.txt").write_text("".join(r[4] + "\n" for r in missing), encoding="utf-8")
-    others = [r for r in rows if r[0] in ("other", "new show", "ambiguous")]
+    others = [r for r in rows if r[0] in ("other", "new show", "ambiguous") and r[0] not in want]
     Path(f"{a.out}-review.txt").write_text("".join(f"{r[0]}\t{r[3]}\t{r[4]}\n" for r in others), encoding="utf-8")
     print(f"\n{len(missing)} posts to download -> {a.out}-missing.txt   ({len(others)} to look at -> {a.out}-review.txt)")
     print(f'Next: .\\Download-Creator.ps1 -Creator "{a.creator}" -ListFile {a.out}-missing.txt')
+    if a.include_new:
+        print("      then import with reaction_rename.py --src <downloads> --new-shows (creates the new show folders)")
 
     if a.seed_archive:
         have_ids = [r[2] for r in rows if r[0] == "have"]
