@@ -46,10 +46,14 @@ EPISODE_PATTERNS = [
 ]
 # a segment that is only an (absolute) episode number: "| One Piece | 898 & 899", "| ONE PIECE | Reaction 612 & 613",
 # "| One Piece | 869 - 871", "| One Piece | 234, 235, 236"
-BARE_EPISODE = re.compile(r"^(?:reaction\s+)?(?P<e1>\d{1,4})(?P<more>(?:\s*,\s*\d{1,4})*)"
+BARE_EPISODE = re.compile(r"^(?P<pre>(?:reaction\s+)?(?:(?:season|book)\s*(?:\d{1,2}|one|two|three|four|five|six)\s*:?\s*)?)"
+                          r"(?P<e1>\d{1,4})(?P<more>(?:\s*,\s*\d{1,4})*)"
                           r"(?:\s*,?\s*(?P<sep>[&-])\s*(?P<e2>\d{1,4}))?$", re.I)
-# a second episode joined with "&": "2x5 & 2x6", "3x1 & 3x2"
-AND_EPISODE = re.compile(r"^\s*&\s*(?:(?P<s>\d{1,2})\s*[xX]\s*)?(?P<e>\d{1,3})\b")
+# one more episode joined with "&" / "+": "2x5 & 2x6", "3x1 & 3x2", "Episodes 1 + 2"; "8-10 + 12" is non-contiguous
+AND_EPISODE = re.compile(r"^\s*[&+]\s*(?:(?P<s>\d{1,2})\s*[xX]\s*)?(?P<e>\d{1,3})\b")
+# season given in words before "Episodes N-M": "Season 2 Episodes 1-4", "Book Two: Episodes 5-8" (Avatar)
+SEASON_WORD = re.compile(r"\b(?:Season|Book)\s*(?P<n>\d{1,2}|one|two|three|four|five|six)\b", re.I)
+WORD_NUMBERS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6}
 FULL_LENGTH = re.compile(r"\bfull\s*len(?:g)?th\b|\bunedited\b", re.I)
 SPECIAL_WORDS = re.compile(r"\b(movie|film|trailer|opening|ending|ova|special|recap|teaser)\b|\bop\s*/\s*ed\b|\+", re.I)
 
@@ -99,22 +103,29 @@ def parse(filename):
     hint = re.sub(r"\s+-\s*$", "", hint)
     if not m:
         return {"hint": hint, "special": True, "note": "no episode number (movie/trailer/opening?)"}
-    special = bool(SPECIAL_WORDS.search(stem.replace(m.group(0), "")))
     if re.search(r"E\d+\s*\+\s*E?\d+", stem):
         return {"hint": hint, "special": True, "note": "non-contiguous episodes (e.g. 'E4 + E8')"}
     s = int(m.groupdict().get("s") or 1)
+    end = stem.find(m.group(0)) + len(m.group(0))            # offsets in stem (a BARE match is per segment)
+    sw = SEASON_WORD.search(stem[:end]) if not m.groupdict().get("s") else None
+    if sw:
+        n = sw.group("n").lower()
+        s = WORD_NUMBERS.get(n) or int(n)
     e1 = int(m.group("e1"))
     e2 = int(m.group("e2")) if m.group("e2") else None
     if m.re is BARE_EPISODE and (m.group("more") or m.group("sep") == "&"):   # a list: must be consecutive
-        nums = [int(n) for n in re.findall(r"\d+", m.group(0))]
+        nums = [int(n) for n in re.findall(r"\d+", m.group(0)[len(m.group("pre")):])]
         if nums != list(range(e1, e1 + len(nums))):
             return {"hint": hint, "special": True, "note": f"non-contiguous episodes ({', '.join(map(str, nums))})"}
         e2 = nums[-1] if len(nums) > 1 else None
-    a = AND_EPISODE.match(stem[m.end():]) if e2 is None else None
+    a = AND_EPISODE.match(stem[end:])
     if a and int(a.group("s") or s) == s:
-        e2 = int(a.group("e"))
-        if e2 != e1 + 1:
-            return {"hint": hint, "special": True, "note": f"non-contiguous episodes (E{e1} & E{e2})"}
+        last, nxt = e2 or e1, int(a.group("e"))
+        if nxt != last + 1:
+            return {"hint": hint, "special": True, "note": f"non-contiguous episodes (E{last} & E{nxt})"}
+        e2 = nxt
+    rest = stem.replace(m.group(0), "", 1).replace(a.group(0), "", 1) if a else stem.replace(m.group(0), "", 1)
+    special = bool(SPECIAL_WORDS.search(rest))
     if e2 is not None and e2 <= e1:
         return {"hint": hint, "special": True, "note": f"odd range E{e1}-{e2}"}
     return {"hint": hint, "season": s, "e1": e1, "e2": e2, "special": special,
@@ -173,17 +184,37 @@ def episodes_present(show_dir):
     return have
 
 
-MOVIE_NOISE = re.compile(r"\b(full length|unedited|movie reaction|reaction|first time watching|first time|watching|react(s|ing)?)\b", re.I)
+MOVIE_NOISE = re.compile(r"\b(full\s*len(?:g)?th|unedited|movie reaction|reaction|first time watching|first time|watching"
+                         r"|react(s|ing)?|patreon exclusive|movie ticket pick)\b"
+                         r"|\b(?:the\s+)?movie\s*$", re.I)   # "Violet Evergarden | The Movie"
+# no episode number, but not a movie either
+NOT_MOVIE = re.compile(r"\b(trailer|opening|ending|ova'?s?|recap|teaser|sbs|q\s*&\s*a|specials?|volume covers|"
+                       r"animal theater|challenge|announcement|livestream|stream)\b|\bop\s*/\s*ed\b", re.I)
 
 
 def movie_title(filename):
-    """'50 First Dates (2004) ｜ MOVIE REACTION ｜ First Time Watching [123].mp4' -> '50 First Dates (2004)'."""
-    stem = re.sub(r"\s*\[\d{6,}\]\s*$", "", normalize(Path(filename).stem))
-    for part in re.split(r"\s*\|\s*", stem):
-        t = re.sub(r"\s+", " ", MOVIE_NOISE.sub("", part)).strip(" -:!")
-        if t:
-            return re.sub(r'\s*[<>:"/\\?*]\s*', " - ", t).strip(" -")   # Windows/SMB-safe
-    return ""
+    """'50 First Dates (2004) ｜ MOVIE REACTION ｜ First Time Watching [123].mp4' -> '50 First Dates (2004)';
+    'Full Length ｜ Haikyuu ｜ The Dumpster Battle' -> 'Haikyuu - The Dumpster Battle' (all non-noise segments)."""
+    stem = re.sub(r"\s*\[\d+\]\s*$", "", normalize(Path(filename).stem))     # post id
+    parts =[re.sub(r"\s+", " ", MOVIE_NOISE.sub("", p)).strip(" -:!") for p in re.split(r"\s*\|\s*", stem)]
+    t = " - ".join(p for p in parts if p)
+    return re.sub(r'\s*[<>:"/\\?*]\s*', " - ", t).strip(" -")   # Windows/SMB-safe
+
+
+def is_movie(title, info):
+    """A post/file with no episode number that isn't a trailer, OVA, special, ... ."""
+    return info is not None and "season" not in info and info.get("note", "").startswith("no episode number") \
+        and not NOT_MOVIE.search(normalize(title)) \
+        and bool(movie_title(title + ".mp4"))
+
+
+def movie_present(movies_dir, title):
+    """The file in <creator>/Movies with the same title (years ignored), else None."""
+    want = key(re.sub(r"\(\d{4}\)", "", title))
+    if not Path(movies_dir).is_dir():
+        return None
+    return next((p for p in Path(movies_dir).iterdir() if p.is_file()
+                 and key(re.sub(r"\(\d{4}\)|,\s*\d{4}$", "", p.stem)) == want), None)
 
 
 def target_for(info, show_dir, display, ext):
@@ -244,14 +275,14 @@ def main():
             cands = find_show(info["hint"], idx, aliases, creator)
         if info.get("special") and "season" not in info:
             movies = Path(a.root, creator, "Movies") if a.src and creator else None
-            if movies and movies.is_dir():                    # creators with a Movies folder: Movie Creator, Creator D
+            # creators with a Movies folder (or --new-shows, which creates it); trailers, OVAs, ... stay REVIEW
+            if movies and (movies.is_dir() or a.new_shows) and is_movie(f.stem, info):
                 title = movie_title(f.name)
                 tgt = movies / f"{title}{f.suffix.lower()}"
-                same = [p for p in movies.iterdir() if p.is_file() and key(re.sub(r"\(\d{4}\)|,\s*\d{4}$", "", p.stem))
-                        == key(re.sub(r"\(\d{4}\)", "", title))]
+                same = movie_present(movies, title)
                 if same:
                     counts["skip"] += 1
-                    plan.append(("SKIP", f, same[0], "movie already there"))
+                    plan.append(("SKIP", f, same, "movie already there"))
                 else:
                     counts["move"] += 1
                     plan.append(("MOVE", f, tgt, "movie (title from the post; check it)"))

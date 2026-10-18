@@ -69,6 +69,25 @@ with tempfile.TemporaryDirectory() as tmp:
                    capture_output=True, text=True, encoding="utf-8")
     check("--include-new adds the new show", "https://www.patreon.com/posts/106" in
           Path(f"{out}-missing.txt").read_text(encoding="utf-8").split(), True)
+    # movies: compared with <creator>/Movies; only --include-movies puts the missing ones in the list
+    Path(root, "Creator A", "Movies").mkdir()
+    Path(root, "Creator A", "Movies", "Interstellar (2014).mp4").write_bytes(b"x")
+    tsv3 = Path(tmp, "movies.tsv")
+    tsv3.write_text("".join("\t".join(p) + "\n" for p in [
+        ("301", "Interstellar ｜ Unedited Reaction", "https://www.patreon.com/posts/301"),
+        ("302", "Jaws ｜ Unedited Reaction", "https://www.patreon.com/posts/302"),
+        ("303", "Infinity Castle ｜ Trailer ｜ Unedited Reaction", "https://www.patreon.com/posts/303"),
+    ]), encoding="utf-8")
+    r5 = subprocess.run([sys.executable, str(HERE / "reaction_gaps.py"), "--root", str(root), "--creator", "Creator A",
+                         "--from-tsv", str(tsv3), "--out", str(out)], capture_output=True, text=True, encoding="utf-8")
+    check("movies reported", "Movies: have 1, missing 1" in r5.stdout, True)
+    check("movies not downloaded without --include-movies", Path(f"{out}-missing.txt").read_text(encoding="utf-8"), "")
+    subprocess.run([sys.executable, str(HERE / "reaction_gaps.py"), "--root", str(root), "--creator", "Creator A",
+                    "--from-tsv", str(tsv3), "--out", str(out), "--include-movies"], capture_output=True, text=True, encoding="utf-8")
+    check("--include-movies: the missing movie only", Path(f"{out}-missing.txt").read_text(encoding="utf-8").split(),
+          ["https://www.patreon.com/posts/302"])
+    Path(root, "Creator A", "Movies", "Interstellar (2014).mp4").unlink()
+    Path(root, "Creator A", "Movies").rmdir()
     check("--include-new: new show not in review", "Mr. Robot" in Path(f"{out}-review.txt").read_text(encoding="utf-8"), False)
     # default: only full-length posts count when the creator marks them; edited / short versions are skipped
     tsv2 = Path(tmp, "versions.tsv")
