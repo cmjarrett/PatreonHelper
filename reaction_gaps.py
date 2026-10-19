@@ -127,6 +127,20 @@ def episode_info(title):
     return info
 
 
+def in_categories(title, terms, aliases):
+    """A post matches a category term when the term appears in its title (case, punctuation and spaces ignored:
+    "Game of Thrones" matches "game.of.thrones s1 e1") or when the post's show is the term's show via the aliases
+    ("Fullmetal Alchemist" matches "FMAB episode 3")."""
+    t = rr.key(title)
+    info = episode_info(title)
+    show = rr.key(aliases.get(rr.key(info.get("hint", "")), info.get("hint", ""))) if info.get("hint") else ""
+    for term in terms:
+        k = rr.key(term)
+        if k and (k in t or k == show or rr.key(aliases.get(k, term)) == show):
+            return True
+    return False
+
+
 def classify(posts, root, creator, aliases, show_filter=None):
     idx, _display = rr.library_index(root, aliases)
     rows, seen = [], {}
@@ -181,6 +195,10 @@ def main():
     ap.add_argument("--include-new", action="store_true",
                     help="also put shows the library doesn't have yet in the missing list (import them with "
                          "reaction_rename.py --new-shows)")
+    ap.add_argument("--only", action="append", default=[], metavar="TERM",
+                    help="download categories: only posts whose title (or show, via the aliases) matches; repeatable")
+    ap.add_argument("--skip", action="append", default=[], metavar="TERM",
+                    help="never these shows/movies (same matching); repeatable, wins over --only")
     ap.add_argument("--include-movies", action="store_true",
                     help="also put movies missing from <creator>/Movies in the missing list")
     ap.add_argument("--all-versions", action="store_true",
@@ -203,6 +221,11 @@ def main():
     if not a.all_versions and any(rr.is_full_length(t) for _, t, _ in posts):
         skipped = [p for p in posts if not rr.is_full_length(p[1])]
         posts = [p for p in posts if rr.is_full_length(p[1])]
+    outside = 0
+    if a.only or a.skip:                                   # download categories: only these shows/movies, not those
+        keep = [p for p in posts if (not a.only or in_categories(p[1], a.only, aliases))
+                and not (a.skip and in_categories(p[1], a.skip, aliases))]
+        outside, posts = len(posts) - len(keep), keep
     rows = classify(posts, a.root, a.creator, aliases, a.show)
     by_show = defaultdict(lambda: defaultdict(list))
     for status, show, pid, title, url, note in rows:
@@ -210,6 +233,8 @@ def main():
     print(f"{len(posts)} full-length posts listed for {a.creator}" if skipped else f"{len(posts)} posts listed for {a.creator}")
     if skipped:
         print(f"   ({len(skipped)} edited / short posts skipped; --all-versions to include them)")
+    if outside:
+        print(f"   ({outside} posts outside the download categories: --only {a.only or '-'} --skip {a.skip or '-'})")
     print()
     for show in sorted(by_show, key=str.lower):
         s = by_show[show]

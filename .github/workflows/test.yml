@@ -18,3 +18,4 @@ jobs:
           python-version: "3.12"
       - run: python test_reaction_rename.py
       - run: python test_reaction_gaps.py
+      - run: pwsh -NoProfile -File ./test_sync_reactions.ps1   # pwsh is preinstalled on ubuntu-latest
