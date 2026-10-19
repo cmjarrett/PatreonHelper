@@ -76,7 +76,7 @@ foreach ($prop in $cfg.PSObject.Properties) {
     $inc = if ($Include) { @($Include) } else { @(Get-List $c 'include') + @(Get-List $defaults 'include') }
     $exc = @(Get-List $c 'exclude') + @(Get-List $defaults 'exclude') + @($Exclude | Where-Object { $_ })
     $out = Join-Path $StateDir $slug
-    $gapArgs = @("$here\reaction_gaps.py", '--root', $Root, '--creator', $name, '--out', $out,
+    $gapArgs = @((Join-Path $here 'reaction_gaps.py'), '--root', $Root, '--creator', $name, '--out', $out,
                  '--seed-archive', $Archive, '--browser', $Browser)
     if ($Offline) { $gapArgs += @('--from-tsv', $tsv) }
     elseif ($url) { $gapArgs += @('--url', $url, '--save-tsv', $tsv) }
@@ -98,7 +98,7 @@ foreach ($prop in $cfg.PSObject.Properties) {
     $missing = @(Get-Content $missingFile -ErrorAction SilentlyContinue | Where-Object { $_.Trim() }).Count
     $done = 'no'
     if ($missing -gt 0 -and -not $ReportOnly) {
-        & "$here\Download-Creator.ps1" -Creator $name -ListFile $missingFile -Inbox $Inbox -Archive $Archive -Browser $Browser
+        & (Join-Path $here 'Download-Creator.ps1') -Creator $name -ListFile $missingFile -Inbox $Inbox -Archive $Archive -Browser $Browser
         $done = 'yes'
     }
     elseif ($missing -eq 0) { $done = '-' }
@@ -108,7 +108,7 @@ foreach ($prop in $cfg.PSObject.Properties) {
 Write-Host "`n== Summary"
 $summary | Format-Table -AutoSize | Out-String | Write-Host
 if ($Import) {
-    $renArgs = @("$here\reaction_rename.py", '--root', $Root, '--src', $Inbox, '--new-shows')
+    $renArgs = @((Join-Path $here 'reaction_rename.py'), '--root', $Root, '--src', $Inbox, '--new-shows')
     if ($Aliases) { $renArgs += @('--aliases', $Aliases) }
     if ($Apply) { $renArgs += '--apply' }
     Write-Host "== Import$(if (-not $Apply) { ' (dry run: add -Apply to move the files)' })"

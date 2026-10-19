@@ -29,7 +29,9 @@ function Check($name, $got, $want) {
 $env:PYTHONUTF8 = '1'
 $log = & "$PSScriptRoot/Sync-Reactions.ps1" -Config (Join-Path $tmp 'creators.json') -Root $root -StateDir $state `
     -Archive (Join-Path $tmp 'downloaded.txt') -Offline -ReportOnly *>&1 | Out-String
-$missing = @(Get-Content (Join-Path $state 'creator-a-missing.txt') | Where-Object { $_ }) -join ','
+$missingPath = Join-Path $state 'creator-a-missing.txt'
+if (-not (Test-Path $missingPath)) { Write-Host $log; throw "no report written: $missingPath" }
+$missing = @(Get-Content $missingPath | Where-Object { $_ }) -join ','
 Check 'categories: Severance gap + Game of Thrones, One Piece excluded by _defaults' $missing 'https://www.patreon.com/posts/2,https://www.patreon.com/posts/3'
 Check 'non-patreon creator skipped' ($log -match "Creator B : skipped") $true
 Check 'owned post seeded into the archive' ((Get-Content (Join-Path $tmp 'downloaded.txt')) -join ',') 'patreon 1'
