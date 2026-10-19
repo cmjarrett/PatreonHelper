@@ -74,6 +74,19 @@ python .\reaction_gaps.py --root "\\nas\media\reaction" --creator "Some Creator"
 - `--seed-archive C:\patreon\downloaded.txt` writes the posts you already have into yt-dlp's download archive, so later full-creator runs skip them on their own.
 - Listing a big creator takes a while (yt-dlp reads each post); `--save-tsv` / `--from-tsv` avoid repeating it.
 
+### 1c. All creators in one go: `Sync-Reactions.ps1`
+Once a few creators are set up, one command lists, compares and downloads for all of them. Describe them in a creators file (copy `reaction-creators.example.json`; keep your real one outside this repo):
+```powershell
+.\Sync-Reactions.ps1 -Config C:\private\reaction-creators.json -Root "\\nas\media\reaction" -Aliases C:\private\reaction-aliases.json -ReportOnly
+.\Sync-Reactions.ps1 -Config C:\private\reaction-creators.json -Root "\\nas\media\reaction" -Aliases C:\private\reaction-aliases.json
+.\Sync-Reactions.ps1 ... -Import          # then -Import -Apply: files the downloads with reaction_rename.py
+```
+- Per creator: `reaction_gaps.py` (listing saved in `sync-state\`, so later runs only read **new** posts) → the missing posts → `Download-Creator.ps1`. New shows and movies are included unless a creator sets `"new_shows": false` / `"movies": false`.
+- **Download categories:** you don't have to mirror everything. `"include": ["Game of Thrones", "Severance"]` downloads only posts whose title (or show, through the aliases) matches; `"exclude": ["One Piece"]` never downloads those (exclude wins). `_defaults` applies to every creator. `-Include` / `-Exclude` set them for one run.
+- `-Offline` re-checks the saved listings without asking Patreon (seconds): handy after changing the categories. `-Creator "Some Creator"` runs just one.
+- The same filters exist on `reaction_gaps.py` as `--only` / `--skip` (repeatable).
+- Test: `pwsh ./test_sync_reactions.ps1`.
+
 ### 2. File them: `reaction_rename.py`
 ```powershell
 python .\reaction_rename.py --root "\nas\media\reaction" --src C:\patreon\inbox             # dry run

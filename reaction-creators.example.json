@@ -1,0 +1,9 @@
+{
+  "_comment": "Creators file for Sync-Reactions.ps1. Key = the creator's folder in the library (= Download-Creator.ps1 -Creator). handling: patreon (synced), anything else is skipped. include/exclude = download categories (title or show matches; exclude wins). new_shows/movies: false to only fill gaps in shows you already have. list_file: a post URL list (collections) instead of url. Keep your real file outside this repo.",
+  "_defaults": { "exclude": [], "movies": true, "new_shows": true },
+  "Creator A": { "url": "https://www.patreon.com/c/<name>/posts", "handling": "patreon" },
+  "Creator B": { "url": "https://www.patreon.com/c/<name>/posts", "handling": "patreon", "include": ["Game of Thrones", "Severance"] },
+  "Creator C": { "url": "https://www.patreon.com/c/<name>/posts", "handling": "patreon", "exclude": ["One Piece"], "movies": false },
+  "Creator D": { "list_file": "C:\\patreon\\creator-d-collection.txt", "handling": "patreon" },
+  "Creator E": { "url": "https://example.com", "handling": "separate" }
+}

@@ -88,6 +88,26 @@ with tempfile.TemporaryDirectory() as tmp:
           ["https://www.patreon.com/posts/302"])
     Path(root, "Creator A", "Movies", "Interstellar (2014).mp4").unlink()
     Path(root, "Creator A", "Movies").rmdir()
+    # download categories: --only (title or show via aliases), --skip wins
+    tsv4 = Path(tmp, "cats.tsv")
+    tsv4.write_text("".join("\t".join(p) + "\n" for p in [
+        ("401", "game of thrones s1 e1 [full length]", "https://www.patreon.com/posts/401"),
+        ("402", "Full Length ｜ FMAB ｜ 1x3", "https://www.patreon.com/posts/402"),
+        ("403", "Full Length ｜ Severance ｜ 1x1", "https://www.patreon.com/posts/403"),
+        ("404", "Full Length ｜ Game.of.Thrones ｜ 2x1", "https://www.patreon.com/posts/404"),
+    ]), encoding="utf-8")
+    al = Path(tmp, "al.json")
+    al.write_text('{"FMAB": "FMA Brotherhood", "Fullmetal Alchemist": "FMA Brotherhood"}', encoding="utf-8")
+    def cats(*extra):
+        r = subprocess.run([sys.executable, str(HERE / "reaction_gaps.py"), "--root", str(root), "--creator", "Creator A",
+                            "--from-tsv", str(tsv4), "--out", str(out), "--include-new", "--aliases", str(al), *extra],
+                           capture_output=True, text=True, encoding="utf-8")
+        return sorted(u.rsplit("/", 1)[1] for u in Path(f"{out}-missing.txt").read_text(encoding="utf-8").split()), r.stdout
+    got, so = cats("--only", "Game of Thrones")
+    check("--only matches titles regardless of case/punctuation", got, ["401", "404"])
+    check("--only reports what it left out", "2 posts outside the download categories" in so, True)
+    check("--only via aliases", cats("--only", "Fullmetal Alchemist")[0], ["402"])
+    check("--skip wins over --only", cats("--only", "Game of Thrones", "--only", "Severance", "--skip", "thrones")[0], ["403"])
     check("--include-new: new show not in review", "Mr. Robot" in Path(f"{out}-review.txt").read_text(encoding="utf-8"), False)
     # default: only full-length posts count when the creator marks them; edited / short versions are skipped
     tsv2 = Path(tmp, "versions.tsv")

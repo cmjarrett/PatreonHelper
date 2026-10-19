@@ -17,3 +17,6 @@ __pycache__/
 *.yt-dlp.log
 gaps-missing.txt
 gaps-review.txt
+# Sync-Reactions state (listings + reports per creator) and your real creators file
+sync-state/
+reaction-creators.json
