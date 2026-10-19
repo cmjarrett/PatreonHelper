@@ -56,6 +56,13 @@ check("absolute & pair", ep("Full Length ｜ One Piece ｜ 898 & 899.mp4"), ("On
 check("absolute range", ep("Full Length ｜ One Piece ｜ 869 - 871.mp4"), ("One Piece", 1, 869, 871, False))
 check("Season N Episodes", ep("Squid Game ｜ Season 2 Episodes 1-4 ｜ Unedited Reaction.mp4"), ("Squid Game", 2, 1, 4, False))
 check("Book Two", ep("Avatar： The Last Airbender ｜ Book Two： Episodes 5-8 ｜ Unedited Reaction.mp4"), ("Avatar", 2, 5, 8, False))
+check("lowercase season/episode", ep("andor season 2 episode 1 [full length].mp4"), ("andor", 2, 1, None, False))
+check("lowercase s1 e1", ep("the acolyte s1 e3 [full length].mp4"), ("the acolyte", 1, 3, None, False))
+check("lowercase s1 e1+2", ep("star wars visions s1 e1+2 [full length].mp4"), ("star wars visions", 1, 1, 2, False))
+check("eps 7-8", ep("legend of korra season 1 eps 7-8 [full length].mp4"), ("legend of korra", 1, 7, 8, False))
+check("lone bracket", ep("doctor who season 4 episode 5 [full length.mp4"), ("doctor who", 4, 5, None, False))
+check("pretty", [rr.pretty("the bad batch"), rr.pretty("FMAB"), rr.pretty("x-men '97")], ["The Bad Batch", "FMAB", "X-men '97"])
+check("movie title brackets", rr.movie_title("back to the future (1985) [full length].mp4"), "Back To The Future (1985)")
 check("Book One: 13-15", ep("Avatar： The Last Airbender ｜ Book One： 13-15 ｜ Unedited Reaction.mp4"), ("Avatar", 1, 13, 15, False))
 check("non-contiguous is not a movie", rr.is_movie("Full Length ｜ One Piece ｜ 894 & 897",
       rr.parse("Full Length ｜ One Piece ｜ 894 & 897.mp4")), False)

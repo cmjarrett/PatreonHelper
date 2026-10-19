@@ -42,7 +42,7 @@ EPISODE_PATTERNS = [
     # 2x9 / 1X08 / 4x15 / 2x3-4
     re.compile(r"\b(?P<s>\d{1,2})\s*[xX]\s*(?P<e1>\d{1,3})(?:\s*-\s*(?P<e2>\d{1,3}))?\b"),
     # Episode 3 / Ep 3 (season 1)
-    re.compile(r"\b(?:Episodes?|Ep\.?)\s*(?P<e1>\d{1,3})(?:\s*-\s*(?P<e2>\d{1,3}))?\b", re.I),
+    re.compile(r"\b(?:Episodes?|Eps?\.?)\s*(?P<e1>\d{1,3})(?:\s*-\s*(?P<e2>\d{1,3}))?\b", re.I),
 ]
 # a segment that is only an (absolute) episode number: "| One Piece | 898 & 899", "| ONE PIECE | Reaction 612 & 613",
 # "| One Piece | 869 - 871", "| One Piece | 234, 235, 236"
@@ -69,6 +69,21 @@ def key(text):
     t = normalize(text).lower()
     t = re.sub(r"^the\s+", "", t)
     return re.sub(r"[^a-z0-9]", "", t)
+
+
+def clean_hint(hint):
+    """Drop what's left of the episode part in one-segment titles ("andor season 2 episode 1 [full length]",
+    "the acolyte s1 e1+2 [full length]"): season words, 's1', 'episode(s)/ep(s)', '+2', empty brackets."""
+    h = re.sub(r"\b(?:season|book)\s*(?:\d{1,2}|one|two|three|four|five|six)\b", " ", hint, flags=re.I)
+    h = re.sub(r"\bs\d{1,2}\b|\b(?:episodes?|eps?)\b\.?", " ", h, flags=re.I)
+    h = re.sub(r"\s*[&+]\s*e?\d+\b", " ", h, flags=re.I)
+    h = re.sub(r"[\[\(]\s*[\]\)]|[\[\]]", " ", h)            # "[]" left by "[full length]", a lone "["
+    return re.sub(r"\s+", " ", h).strip(" -:+&|")
+
+
+def pretty(name):
+    """Folder name for a new show: all-lowercase post titles ("the bad batch") get capitalized words."""
+    return " ".join(w[:1].upper() + w[1:] for w in name.split(" ")) if name == name.lower() else name
 
 
 def parse(filename):
@@ -100,7 +115,7 @@ def parse(filename):
     hint = re.split(r"\s*:\s*", hint)[0].strip()             # "Demon Slayer: Kimetsu no Yaiba" -> "Demon Slayer"
     if re.search(r"\blive[\s-]*action\b", stem, re.I) and not re.search(r"live[\s-]*action", hint, re.I):
         hint += " Live Action"                                # "One Piece | Live Action 2x1": not the anime
-    hint = re.sub(r"\s+-\s*$", "", hint)
+    hint = clean_hint(hint)
     if not m:
         return {"hint": hint, "special": True, "note": "no episode number (movie/trailer/opening?)"}
     if re.search(r"E\d+\s*\+\s*E?\d+", stem):
@@ -197,7 +212,8 @@ def movie_title(filename):
     'Full Length ｜ Haikyuu ｜ The Dumpster Battle' -> 'Haikyuu - The Dumpster Battle' (all non-noise segments)."""
     stem = re.sub(r"\s*\[\d+\]\s*$", "", normalize(Path(filename).stem))     # post id
     parts =[re.sub(r"\s+", " ", MOVIE_NOISE.sub("", p)).strip(" -:!") for p in re.split(r"\s*\|\s*", stem)]
-    t = " - ".join(p for p in parts if p)
+    parts = [re.sub(r"\s+", " ", re.sub(r"[\[\(]\s*[\]\)]", "", p)).strip(" -:!") for p in parts]   # "[]" of "[full length]"
+    t = pretty(" - ".join(p for p in parts if p))
     return re.sub(r'\s*[<>:"/\\?*]\s*', " - ", t).strip(" -")   # Windows/SMB-safe
 
 
@@ -254,6 +270,7 @@ def main():
     conventional_shows = {s for s in display if any(CONVENTIONAL.search(p.stem) for p in s.rglob("*"))}
 
     plan, counts = [], Counter()
+    new_dirs = {}                                             # (creator, show key) -> folder created this run
     for f in sorted(files):
         info = parse(f.name)
         if info is None:
@@ -291,7 +308,9 @@ def main():
             plan.append(("REVIEW", f, None, f"{info['note']}; show hint '{info['hint']}'"))
             continue
         if not cands and a.src and creator and a.new_shows and info["hint"]:
-            new_dir = Path(a.root, creator, aliases.get(key(info["hint"]), info["hint"]))
+            name = aliases.get(key(info["hint"]), info["hint"])
+            # one folder per show even when titles vary ("x-men '97" / "xmen 97"): the first spelling seen wins
+            new_dir = new_dirs.setdefault((creator.lower(), key(name)), Path(a.root, creator, pretty(name)))
             display.setdefault(new_dir, new_dir.name)
             cands = [(creator, new_dir)]
         if len(cands) != 1:

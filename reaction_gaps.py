@@ -129,7 +129,7 @@ def episode_info(title):
 
 def classify(posts, root, creator, aliases, show_filter=None):
     idx, _display = rr.library_index(root, aliases)
-    rows = []
+    rows, seen = [], {}
     for pid, title, url in posts:
         info = episode_info(title)
         if "season" not in info:
@@ -143,7 +143,11 @@ def classify(posts, root, creator, aliases, show_filter=None):
                 rows.append(("other", info.get("hint", ""), pid, title, url, info.get("note", "")))
             continue
         cands = rr.find_show(info["hint"], idx, aliases, creator)
-        show = cands[0][1].name if len(cands) == 1 else (info["hint"] or "?")
+        if len(cands) == 1:
+            show = cands[0][1].name
+        else:                                              # new show: one name per show key ("x-men '97" = "xmen 97")
+            name = aliases.get(rr.key(info["hint"]), info["hint"]) or "?"
+            show = seen.setdefault(rr.key(name), rr.pretty(name))
         if show_filter and rr.key(show_filter) not in (rr.key(show), rr.key(info["hint"])):
             continue
         if len(cands) != 1:
