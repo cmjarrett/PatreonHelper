@@ -70,6 +70,14 @@ check("movie title tags dropped", rr.movie_title("Spirited Away ｜ Patreon Excl
 check("Episodes 1 + 2", ep("Jessica Jones ｜ Season 1 Episodes 1 + 2 ｜ Unedited Reaction.mp4"), ("Jessica Jones", 1, 1, 2, False))
 check("range + gap", ep("The Apothecary Diaries ｜ Season 2 Episodes 8-10 + 12 ｜ Unedited Reaction.mp4")[0], "review")
 check("range + next", ep("Show ｜ Season 1 Episodes 8-10 + 11.mp4"), ("Show", 1, 8, 11, False))
+# "Show | Season N | Ep. N" (the season segment is not the show), a trailing season digit, "(Full Movie Reaction)"
+check("Season segment", ep("Succession | Season 4 | Ep. 3.mp4"), ("Succession", 4, 3, None, False))
+check("Ep. with a dot, finale segment", ep("Stranger Things | Ep. 8 | Finale.mp4"), ("Stranger Things", 1, 8, None, False))
+check("trailing season digit", ep("Stranger Things 4 | Ep. 3.mp4"), ("Stranger Things", 4, 3, None, False))
+check("trailing digit after No.", ep("Kaiju No. 8 | Ep. 3.mp4"), ("Kaiju No. 8", 1, 3, None, False))
+check("number in show name kept", ep("Mob Psycho 100 | Ep. 3.mp4"), ("Mob Psycho 100", 1, 3, None, False))
+check("full movie reaction title", rr.movie_title("The Avengers (Full Movie Reaction).mp4"), "The Avengers")
+check("BTS is not a movie", rr.is_movie("The Avengers BTS (Behind the Scenes)", rr.parse("The Avengers BTS (Behind the Scenes).mp4")), False)
 check("movie title: all segments", rr.movie_title("Full Length ｜ Haikyuu ｜ The Dumpster Battle.mp4"), "Haikyuu - The Dumpster Battle")
 check("movie title: 'The Movie' dropped", rr.movie_title("Full Length ｜ Violet Evergarden ｜ The Movie.mp4"), "Violet Evergarden")
 check("is_movie", [rr.is_movie(t, rr.parse(t + ".mp4")) for t in ("Interstellar ｜ Unedited Reaction",
