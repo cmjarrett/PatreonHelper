@@ -54,6 +54,10 @@ AND_EPISODE = re.compile(r"^\s*[&+]\s*(?:(?P<s>\d{1,2})\s*[xX]\s*)?(?P<e>\d{1,3}
 # season given in words before "Episodes N-M": "Season 2 Episodes 1-4", "Book Two: Episodes 5-8" (Avatar)
 SEASON_WORD = re.compile(r"\b(?:Season|Book)\s*(?P<n>\d{1,2}|one|two|three|four|five|six)\b", re.I)
 WORD_NUMBERS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6}
+# a single trailing digit on the show name is the season when nothing else says one ("Stranger Things 4 | Ep. 3");
+# not after "No." / "Part" / ... ("Kaiju No. 8 | Ep. 3"), and never 1 (season 1 is written without a number)
+SEASON_SUFFIX = re.compile(r"\b(?P<prev>[A-Za-z']+\.?)\s+(?P<n>[2-9])$")
+SEASON_SUFFIX_STOP = {"no", "no.", "part", "pt", "pt.", "vol", "vol.", "volume", "chapter", "book", "season", "s", "ep", "ep.", "episode"}
 FULL_LENGTH = re.compile(r"\bfull\s*len(?:g)?th\b|\bunedited\b|\buncut\b", re.I)
 CUT_VERSION = re.compile(r"\bcut\b", re.I)   # "(Cut Reaction)", "CUT VERSION": the edited one; \b keeps "Uncut" out
 SPECIAL_WORDS = re.compile(r"\b(movie|film|trailer|opening|ending|ova|special|recap|teaser)\b|\bop\s*/\s*ed\b|\+", re.I)
@@ -109,7 +113,7 @@ def parse(filename):
     hint = ""
     for i in order:
         p2 = parts[i].replace(m.group(0), "") if i == ep_idx else parts[i]
-        p2 = NOISE.sub("", p2).strip(" -:")
+        p2 = clean_hint(NOISE.sub("", p2).strip(" -:"))   # "Season 4" alone is not a show ("Show | Season 4 | Ep. 3")
         if p2:
             hint = p2
             break
@@ -127,6 +131,10 @@ def parse(filename):
     if sw:
         n = sw.group("n").lower()
         s = WORD_NUMBERS.get(n) or int(n)
+    elif not m.groupdict().get("s"):
+        ts = SEASON_SUFFIX.search(hint)                   # "Stranger Things 4 | Ep. 3": season 4 of Stranger Things
+        if ts and ts.group("prev").lower() not in SEASON_SUFFIX_STOP:
+            s, hint = int(ts.group("n")), hint[:ts.start("n")].rstrip()
     e1 = int(m.group("e1"))
     e2 = int(m.group("e2")) if m.group("e2") else None
     if m.re is BARE_EPISODE and (m.group("more") or m.group("sep") == "&"):   # a list: must be consecutive
@@ -203,12 +211,12 @@ def episodes_present(show_dir):
     return have
 
 
-MOVIE_NOISE = re.compile(r"\b(full\s*len(?:g)?th|unedited|movie reaction|reaction|first time watching|first time|watching"
+MOVIE_NOISE = re.compile(r"\b(full\s*len(?:g)?th|unedited|full\s*movie(?:\s*reaction)?|movie reaction|reaction|first time watching|first time|watching"
                          r"|react(s|ing)?|patreon exclusive|movie ticket pick)\b"
                          r"|\b(?:the\s+)?movie\s*$", re.I)   # "Violet Evergarden | The Movie"
 # no episode number, but not a movie either
 NOT_MOVIE = re.compile(r"\b(trailer|opening|ending|ova'?s?|recap|teaser|sbs|q\s*&\s*a|specials?|volume covers|"
-                       r"animal theater|challenge|announcement|livestream|stream)\b|\bop\s*/\s*ed\b", re.I)
+                       r"animal theater|challenge|announcement|livestream|stream|behind the scenes|bts|movie night|update)\b|\bop\s*/\s*ed\b", re.I)
 
 
 def movie_title(filename):
