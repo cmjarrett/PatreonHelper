@@ -84,8 +84,10 @@ check("live action is its own show", ep("Full Length ｜ One Piece ｜ Live Acti
 check("live action short post", ep("SHE'S HERE ｜ ONE PIECE ｜ 2x1 Live Action Reaction.mp4"), ("ONE PIECE Live Action", 2, 1, None, False))
 check("number in show name", ep("Full Length ｜ Mob Psycho 100 ｜ OVA Special.mp4")[0], "review")
 check("full length", [rr.is_full_length(t) for t in ("Full Length ｜ Haikyuu ｜ 4x15", "Full Lenth ｜ Erased ｜ Ep 7",
-      "Demon Slayer ｜ S1 x E13-16 ｜ Unedited Reaction", "Edited ｜ Frieren ｜ 2x5 & 2x6", "THE BOSS ｜ MOB PSYCHO 100 ｜ Reaction 2x11")],
-      [True, True, True, False, False])
+      "Demon Slayer ｜ S1 x E13-16 ｜ Unedited Reaction", "Edited ｜ Frieren ｜ 2x5 & 2x6", "THE BOSS ｜ MOB PSYCHO 100 ｜ Reaction 2x11",
+      "LOST S1 E17 - ...In Translation (Uncut Reaction)", "LOST S1 E17 - ...In Translation (Cut Reaction)",
+      "Coach Carter (UNCUT VERSION)", "KELCE Part 1 (CUT VERSION)")],
+      [True, True, True, False, False, True, False, True, False])
 check("conventional", ep("Demon Slayer - S02E09.mp4"), "conventional")
 check("conventional title", ep("The Last Of Us - S01E03 - Long, Long Time.mp4"), "conventional")
 check("conventional range", ep("Jujutsu Kaisen - S03E11-12.mp4"), "conventional")

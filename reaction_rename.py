@@ -54,7 +54,8 @@ AND_EPISODE = re.compile(r"^\s*[&+]\s*(?:(?P<s>\d{1,2})\s*[xX]\s*)?(?P<e>\d{1,3}
 # season given in words before "Episodes N-M": "Season 2 Episodes 1-4", "Book Two: Episodes 5-8" (Avatar)
 SEASON_WORD = re.compile(r"\b(?:Season|Book)\s*(?P<n>\d{1,2}|one|two|three|four|five|six)\b", re.I)
 WORD_NUMBERS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6}
-FULL_LENGTH = re.compile(r"\bfull\s*len(?:g)?th\b|\bunedited\b", re.I)
+FULL_LENGTH = re.compile(r"\bfull\s*len(?:g)?th\b|\bunedited\b|\buncut\b", re.I)
+CUT_VERSION = re.compile(r"\bcut\b", re.I)   # "(Cut Reaction)", "CUT VERSION": the edited one; \b keeps "Uncut" out
 SPECIAL_WORDS = re.compile(r"\b(movie|film|trailer|opening|ending|ova|special|recap|teaser)\b|\bop\s*/\s*ed\b|\+", re.I)
 
 
@@ -148,9 +149,12 @@ def parse(filename):
 
 
 def is_full_length(title):
-    """Posts marked as the full reaction ("Full Length", "Unedited"), not "Edited | ..." or short clip posts."""
+    """Posts marked as the full reaction ("Full Length", "Unedited", "Uncut"), not "Edited | ...", "(Cut Reaction)"
+    or short clip posts. Creators that post both: Uncut = full, Cut = edited."""
     t = normalize(title)
-    return bool(FULL_LENGTH.search(t)) and not re.match(r"\s*edited\b", t, re.I)
+    if re.match(r"\s*edited\b", t, re.I) or CUT_VERSION.search(t):
+        return False
+    return bool(FULL_LENGTH.search(t))
 
 
 def library_index(root, aliases=None):

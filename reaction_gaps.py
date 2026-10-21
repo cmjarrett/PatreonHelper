@@ -17,7 +17,7 @@ Usage (dev PC, Firefox logged in to Patreon):
   python reaction_gaps.py ... --show "Vinland Saga" --seed-archive C:\\patreon\\downloaded.txt
 Movies (no episode number, not a trailer / OVA / special) are compared with <creator>/Movies; --include-movies
 puts the missing ones in the download list, --include-new the shows the library doesn't have yet.
-Only full reactions count: when a creator marks posts "Full Length" / "Unedited", their "Edited | ..." and short clip
+Only full reactions count: when a creator marks posts "Full Length" / "Unedited" / "Uncut", their "Edited | ...", "(Cut Reaction)" and short clip
 posts ("EPISODE TITLE | SHOW | Reaction 2x11") are skipped (--all-versions includes them).
 Listing a big creator takes a while (yt-dlp reads each post's metadata, ~1-2 s per post); progress is printed every
 25 posts. With --save-tsv each post is saved as it arrives: an interrupted run resumes where it stopped when started
@@ -184,7 +184,7 @@ def main():
     ap.add_argument("--include-movies", action="store_true",
                     help="also put movies missing from <creator>/Movies in the missing list")
     ap.add_argument("--all-versions", action="store_true",
-                    help="also count edited / short posts (default: only 'Full Length' / 'Unedited' posts when the "
+                    help="also count edited / short posts (default: only 'Full Length' / 'Unedited' / 'Uncut' posts when the "
                          "creator marks any that way)")
     ap.add_argument("--browser", default="firefox")
     ap.add_argument("--aliases", default=None)
