@@ -80,7 +80,7 @@ python .\reaction_rename.py --root "\nas\media\reaction" --src C:\patreon\inbox 
 python .\reaction_rename.py --root "\nas\media\reaction" --src C:\patreon\inbox --apply
 python .\reaction_rename.py --root "\nas\media\reaction" --tidy                             # rename what's already in the library
 ```
-- Understands Patreon titles (`Show ｜ S2 x E12-15 ｜ Unedited Reaction [123]`, `Full Length ｜ Show ｜ 2x9`, `Episode 3`, `S01e08` …) and files them into the existing show folder, matching its naming and season folders.
+- Understands Patreon titles (`Show ｜ S2 x E12-15 ｜ Unedited Reaction [123]`, `Full Length ｜ Show ｜ 2x9`, `Show S1 E17 - Title (Uncut Reaction)` (its `(Cut Reaction)` twin is the edited one), `Episode 3`, `S01e08` …) and files them into the existing show folder, matching its naming and season folders.
 - **Never overwrites**; downloads whose episodes are already there (also as single-episode files) are skipped; movies, trailers, openings, odd ranges and unknown shows are listed for review and left alone.
 - The creator comes from the inbox folder (or `--creator`); `--new-shows` creates folders for shows the library doesn't have yet; creators with a `Movies` folder get `Movies\<title>.ext`.
 - Show-name aliases: copy `reaction-aliases.example.json` to `reaction-aliases.json` (git-ignored) and add your own, or pass `--aliases <file>`.
