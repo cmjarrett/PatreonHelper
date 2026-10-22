@@ -39,36 +39,36 @@ with tempfile.TemporaryDirectory() as tmp:
         ("107", "Infinity Castle ｜ Trailer Reaction", "https://www.patreon.com/posts/107"),          # other
         ("108", "Vinland Saga - S01E03", "https://www.patreon.com/posts/108"),                       # conventional title, have
     ]
-    tsv.write_text("".join("\t".join(p) + "\n" for p in posts), encoding="utf-8")
+    tsv.write_text("".join("\t".join(p) + "\n" for p in posts), encoding="utf-8", errors="replace")
     arch = Path(tmp, "downloaded.txt")
-    arch.write_text("patreon 104\n", encoding="utf-8")
+    arch.write_text("patreon 104\n", encoding="utf-8", errors="replace")
     out = Path(tmp, "gaps")
     r = subprocess.run([sys.executable, str(HERE / "reaction_gaps.py"), "--root", str(root), "--creator", "Creator A",
                         "--from-tsv", str(tsv), "--out", str(out), "--seed-archive", str(arch), "--all-versions"],
-                       capture_output=True, text=True, encoding="utf-8")
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")   # a stray console-page byte must not kill the run
     print(r.stdout if fails else "", r.stderr[-800:])
-    missing = Path(f"{out}-missing.txt").read_text(encoding="utf-8").split()
+    missing = Path(f"{out}-missing.txt").read_text(encoding="utf-8", errors="replace").split()
     check("missing list = the two absent Vinland posts", sorted(missing),
           ["https://www.patreon.com/posts/102", "https://www.patreon.com/posts/103"])
     check("partial not in missing by default", "https://www.patreon.com/posts/105" in missing, False)
-    review = Path(f"{out}-review.txt").read_text(encoding="utf-8")
+    review = Path(f"{out}-review.txt").read_text(encoding="utf-8", errors="replace")
     check("new show (title with a dot) -> review", "new show\tMr. Robot" in review, True)
     check("trailer -> review", "Infinity Castle" in review, True)
     check("report shows Vinland counts", "Vinland Saga: have 2, missing 2" in r.stdout, True)
     check("report shows the partial", "partial: S02E10-13 (has E10,E11)" in r.stdout, True)
-    a = arch.read_text(encoding="utf-8").split("\n")
+    a = arch.read_text(encoding="utf-8", errors="replace").split("\n")
     check("archive seeded with owned posts, no duplicates", sorted(x for x in a if x),
           ["patreon 101", "patreon 104", "patreon 108"])
     r2 = subprocess.run([sys.executable, str(HERE / "reaction_gaps.py"), "--root", str(root), "--creator", "Creator A",
                          "--from-tsv", str(tsv), "--out", str(out), "--include-partial", "--show", "Demon Slayer"],
-                        capture_output=True, text=True, encoding="utf-8")
-    m2 = Path(f"{out}-missing.txt").read_text(encoding="utf-8").split()
+                        capture_output=True, text=True, encoding="utf-8", errors="replace")
+    m2 = Path(f"{out}-missing.txt").read_text(encoding="utf-8", errors="replace").split()
     check("--show + --include-partial", m2, ["https://www.patreon.com/posts/105"])
     subprocess.run([sys.executable, str(HERE / "reaction_gaps.py"), "--root", str(root), "--creator", "Creator A",
                     "--from-tsv", str(tsv), "--out", str(out), "--all-versions", "--include-new"],
-                   capture_output=True, text=True, encoding="utf-8")
+                   capture_output=True, text=True, encoding="utf-8", errors="replace")
     check("--include-new adds the new show", "https://www.patreon.com/posts/106" in
-          Path(f"{out}-missing.txt").read_text(encoding="utf-8").split(), True)
+          Path(f"{out}-missing.txt").read_text(encoding="utf-8", errors="replace").split(), True)
     # movies: compared with <creator>/Movies; only --include-movies puts the missing ones in the list
     Path(root, "Creator A", "Movies").mkdir()
     Path(root, "Creator A", "Movies", "Interstellar (2014).mp4").write_bytes(b"x")
@@ -77,34 +77,34 @@ with tempfile.TemporaryDirectory() as tmp:
         ("301", "Interstellar ｜ Unedited Reaction", "https://www.patreon.com/posts/301"),
         ("302", "Jaws ｜ Unedited Reaction", "https://www.patreon.com/posts/302"),
         ("303", "Infinity Castle ｜ Trailer ｜ Unedited Reaction", "https://www.patreon.com/posts/303"),
-    ]), encoding="utf-8")
+    ]), encoding="utf-8", errors="replace")
     r5 = subprocess.run([sys.executable, str(HERE / "reaction_gaps.py"), "--root", str(root), "--creator", "Creator A",
-                         "--from-tsv", str(tsv3), "--out", str(out)], capture_output=True, text=True, encoding="utf-8")
+                         "--from-tsv", str(tsv3), "--out", str(out)], capture_output=True, text=True, encoding="utf-8", errors="replace")
     check("movies reported", "Movies: have 1, missing 1" in r5.stdout, True)
-    check("movies not downloaded without --include-movies", Path(f"{out}-missing.txt").read_text(encoding="utf-8"), "")
+    check("movies not downloaded without --include-movies", Path(f"{out}-missing.txt").read_text(encoding="utf-8", errors="replace"), "")
     subprocess.run([sys.executable, str(HERE / "reaction_gaps.py"), "--root", str(root), "--creator", "Creator A",
-                    "--from-tsv", str(tsv3), "--out", str(out), "--include-movies"], capture_output=True, text=True, encoding="utf-8")
-    check("--include-movies: the missing movie only", Path(f"{out}-missing.txt").read_text(encoding="utf-8").split(),
+                    "--from-tsv", str(tsv3), "--out", str(out), "--include-movies"], capture_output=True, text=True, encoding="utf-8", errors="replace")
+    check("--include-movies: the missing movie only", Path(f"{out}-missing.txt").read_text(encoding="utf-8", errors="replace").split(),
           ["https://www.patreon.com/posts/302"])
     Path(root, "Creator A", "Movies", "Interstellar (2014).mp4").unlink()
     Path(root, "Creator A", "Movies").rmdir()
-    check("--include-new: new show not in review", "Mr. Robot" in Path(f"{out}-review.txt").read_text(encoding="utf-8"), False)
+    check("--include-new: new show not in review", "Mr. Robot" in Path(f"{out}-review.txt").read_text(encoding="utf-8", errors="replace"), False)
     # default: only full-length posts count when the creator marks them; edited / short versions are skipped
     tsv2 = Path(tmp, "versions.tsv")
     tsv2.write_text("".join("\t".join(p) + "\n" for p in [
         ("201", "Full Length ｜ Vinland Saga ｜ 1x5", "https://www.patreon.com/posts/201"),
         ("202", "Edited ｜ Vinland Saga ｜ 1x6", "https://www.patreon.com/posts/202"),
         ("203", "WHAT IS HE DOING?! ｜ VINLAND SAGA ｜ Reaction 1x7", "https://www.patreon.com/posts/203"),
-    ]), encoding="utf-8")
+    ]), encoding="utf-8", errors="replace")
     r3 = subprocess.run([sys.executable, str(HERE / "reaction_gaps.py"), "--root", str(root), "--creator", "Creator A",
-                         "--from-tsv", str(tsv2), "--out", str(out)], capture_output=True, text=True, encoding="utf-8")
-    check("only the full-length post is missing", Path(f"{out}-missing.txt").read_text(encoding="utf-8").split(),
+                         "--from-tsv", str(tsv2), "--out", str(out)], capture_output=True, text=True, encoding="utf-8", errors="replace")
+    check("only the full-length post is missing", Path(f"{out}-missing.txt").read_text(encoding="utf-8", errors="replace").split(),
           ["https://www.patreon.com/posts/201"])
     check("skipped versions reported", "2 edited / short posts skipped" in r3.stdout, True)
     r4 = subprocess.run([sys.executable, str(HERE / "reaction_gaps.py"), "--root", str(root), "--creator", "Creator A",
-                         "--from-tsv", str(tsv2), "--out", str(out), "--all-versions"], capture_output=True, text=True, encoding="utf-8")
+                         "--from-tsv", str(tsv2), "--out", str(out), "--all-versions"], capture_output=True, text=True, encoding="utf-8", errors="replace")
     check("--all-versions counts them (show from the segment before the episode)",
-          sorted(Path(f"{out}-missing.txt").read_text(encoding="utf-8").split()),
+          sorted(Path(f"{out}-missing.txt").read_text(encoding="utf-8", errors="replace").split()),
           [f"https://www.patreon.com/posts/{i}" for i in (201, 202, 203)])
 
 # Streaming listing + resume, with a fake yt-dlp on PATH (POSIX only: Windows won't run a script named "yt-dlp")
@@ -122,16 +122,16 @@ if "--download-archive" in args:
 for i in ("201", "202", "203"):
     if i not in skip:
         print(f"{{i}}\\tShow ｜ 1x{{i[-1]}}\\thttps://www.patreon.com/posts/{{i}}", flush=True)
-""", encoding="utf-8")
+""", encoding="utf-8", errors="replace")
         fake.chmod(0o755)
         os.environ["PATH"] = tmp + os.pathsep + os.environ["PATH"]
         sys.path.insert(0, str(HERE))
         import reaction_gaps as rg
         tsv = Path(tmp, "listing.tsv")
-        tsv.write_text("201\tShow ｜ 1x1\thttps://www.patreon.com/posts/201\n", encoding="utf-8")   # an earlier, interrupted run
+        tsv.write_text("201\tShow ｜ 1x1\thttps://www.patreon.com/posts/201\n", encoding="utf-8", errors="replace")   # an earlier, interrupted run
         posts = rg.list_posts(url="https://example.invalid/posts", save_tsv=str(tsv), every=1)
         check("resume keeps the earlier post and adds the rest", [p[0] for p in posts], ["201", "202", "203"])
-        check("tsv holds every post once", [l.split("\t")[0] for l in tsv.read_text(encoding="utf-8").splitlines()],
+        check("tsv holds every post once", [l.split("\t")[0] for l in tsv.read_text(encoding="utf-8", errors="replace").splitlines()],
               ["201", "202", "203"])
         check("temporary archive removed", Path(f"{tsv}.known").exists(), False)
 

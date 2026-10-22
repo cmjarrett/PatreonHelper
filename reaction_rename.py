@@ -118,6 +118,7 @@ def parse(filename):
             hint = p2
             break
     hint = re.split(r"\s*:\s*", hint)[0].strip()             # "Demon Slayer: Kimetsu no Yaiba" -> "Demon Slayer"
+    hint = re.split(r'\s*[,"“”]', hint)[0].strip()           # "The Owl House 2x9 Reaction, "Eclipse Lake"" -> "The Owl House"; 'Attack on Titan "Hero"' -> 'Attack on Titan'
     if re.search(r"\blive[\s-]*action\b", stem, re.I) and not re.search(r"live[\s-]*action", hint, re.I):
         hint += " Live Action"                                # "One Piece | Live Action 2x1": not the anime
     hint = clean_hint(hint)
@@ -187,7 +188,10 @@ def find_show(hint, idx, aliases, creator=None):
     so a show that two creators react to is ambiguous (REVIEW / --creator) instead of guessed."""
     if not hint:
         return []
-    keys = {key(hint), key(aliases.get(key(hint), hint))}
+    canon = key(aliases.get(key(hint), hint))
+    # the raw name, its alias, and every other name whose alias is the same show: a hint "Jujutsu Kaisen" (from a
+    # Patreon collection) must find the folder "JJK" when the aliases say JJK -> Jujutsu Kaisen
+    keys = {key(hint), canon} | {k for k, v in aliases.items() if key(v) == canon}
     cands = []
     for k in keys:
         hits = idx.get(k, [])
