@@ -148,13 +148,16 @@ PATREON_API = "https://www.patreon.com/api/posts"
 COLLECTION_SUFFIX = re.compile(r"\s*\b(reactions?|reacts?)\b\s*$", re.I)
 
 
-def patreon_collections(creator_url, cache=None, every=10):
-    """post id -> collection title for every post of a creator, from Patreon's public JSON API.
+VIDEO_POST_TYPES = {"video_external_file", "video_embed", "video"}   # the rest: text_only, image_file, poll, podcast, livestream ...
 
-    No login needed: titles and collection membership are visible for patron-only posts too. The creator page
-    gives the campaign id; then /api/posts?filter[campaign_id]=... with include=collections, 100 posts per
-    request, following the cursor links (a 3,000-post creator is ~30 requests). A post in several collections
-    keeps the first. `cache` (a JSON file) is written at the end and lets --from-tsv runs stay offline.
+
+def patreon_listing(creator_url, every=10):
+    """Every post of a creator from Patreon's public JSON API, with its collection: no login, no yt-dlp.
+
+    Returns (posts, coll_titles): posts = [(id, title, url, post_type)] for ALL posts (also the ones a lower tier
+    can't open: titles and collection membership are public), coll_titles = {post id: collection title} (a post in
+    several collections keeps the first). The creator page gives the campaign id; then /api/posts?filter[campaign_id]
+    with include=collections, 100 per request, following the cursor links (a 3,000-post creator is ~30 requests).
     """
     import urllib.parse
     import urllib.request
@@ -165,14 +168,15 @@ def patreon_collections(creator_url, cache=None, every=10):
             body = r.read().decode("utf-8", "replace")
         return json.loads(body) if as_json else body
 
-    html = get(creator_url, as_json=False)
-    m = re.search(r'"campaign":\{"data":\{"id":"(\d+)"', html) or re.search(r"/campaigns/(\d+)", html)
+    html = get(creator_url.rstrip("/").removesuffix("/posts"), as_json=False)
+    m = (re.search(r'"campaign":\{"data":\{"id":"(\d+)"', html) or re.search(r'"id":"(\d+)","type":"campaign"', html)
+         or re.search(r"/campaigns/(\d+)", html))
     if not m:
-        sys.exit(f"no campaign id found on {creator_url} (is it the creator's page?)")
-    q = {"filter[campaign_id]": m[1], "include": "collections", "fields[post]": "title",
+        sys.exit(f"no campaign id found on {creator_url} (use the creator's page, e.g. https://www.patreon.com/<name>)")
+    q = {"filter[campaign_id]": m[1], "include": "collections", "fields[post]": "title,url,post_type",
          "fields[collection]": "title", "sort": "-published_at", "page[count]": "100", "json-api-version": "1.0"}
     url = PATREON_API + "?" + urllib.parse.urlencode(q)
-    titles, coll_of, pages = {}, {}, 0
+    titles, coll_of, posts, pages = {}, {}, [], 0
     while url:
         d = get(url)
         pages += 1
@@ -180,13 +184,23 @@ def patreon_collections(creator_url, cache=None, every=10):
             if inc.get("type") == "collection":
                 titles[inc["id"]] = (inc.get("attributes") or {}).get("title") or ""
         for p in d.get("data", []):
+            at = p.get("attributes") or {}
+            posts.append((p["id"], rr.normalize(at.get("title") or ""), at.get("url") or f"https://www.patreon.com/posts/{p['id']}",
+                          at.get("post_type") or ""))
             ids = [c["id"] for c in ((p.get("relationships") or {}).get("collections") or {}).get("data") or []]
             if ids:
                 coll_of[p["id"]] = ids[0]
         url = (d.get("links") or {}).get("next")
         if pages % every == 0:
-            print(f"  {pages * 100} posts' collections read ...", file=sys.stderr, flush=True)
-    result = {pid: titles[cid] for pid, cid in coll_of.items() if titles.get(cid)}
+            print(f"  {pages * 100} posts read ...", file=sys.stderr, flush=True)
+    coll_titles = {pid: titles[cid] for pid, cid in coll_of.items() if titles.get(cid)}
+    return posts, coll_titles
+
+
+def patreon_collections(creator_url, cache=None):
+    """post id -> collection title (see patreon_listing). `cache` (JSON) is written at the end and lets
+    --from-tsv runs stay offline."""
+    _posts, result = patreon_listing(creator_url)
     if cache:
         Path(cache).write_text(json.dumps(result, indent=0, ensure_ascii=False), encoding="utf-8")
     print(f"  collections: {len(result)} posts in {len(set(result.values()))} collections"
@@ -282,6 +296,10 @@ def main():
     src.add_argument("--url", help="creator page, e.g. https://www.patreon.com/c/<name>/posts")
     src.add_argument("--list-file", help="post URL list (a collection, from Clean-Patreon-PlayList-HTML.ps1)")
     src.add_argument("--from-tsv", help="a listing saved earlier with --save-tsv (no network)")
+    src.add_argument("--patreon", metavar="CREATOR_URL",
+                     help="list the creator's video posts from Patreon's public API instead of yt-dlp (seconds, not an "
+                          "hour; no login; posts your tier can't open are listed too, the download then skips them), "
+                          "collections included: --collections-from is implied")
     ap.add_argument("--save-tsv", help="save the listing (id, title, url) for re-runs")
     ap.add_argument("--show", help="only this show")
     ap.add_argument("--out", default="gaps", help="prefix for the output files (default: gaps)")
@@ -300,6 +318,9 @@ def main():
     ap.add_argument("--collections", default=None,
                     help="folder of collection URL lists, one '<Show>.txt' per Patreon collection: a post in one is "
                          "that show, whatever its title says")
+    ap.add_argument("--only-collections", metavar="A,B,...",
+                    help="keep only posts in these Patreon collections (names as shown by Patreon, 'Reaction' suffix "
+                         "optional, case-insensitive): for a creator where only some shows are wanted")
     ap.add_argument("--collections-from", metavar="CREATOR_URL",
                     help="read every post's collection from Patreon itself (public API, no login; the creator page URL, "
                          "e.g. https://www.patreon.com/<name>): the collection title, minus 'Reaction', is the show. "
@@ -310,7 +331,18 @@ def main():
     alias_file = Path(a.aliases) if a.aliases else (local if local.exists() else local.with_suffix(".example.json"))
     aliases = {rr.key(k): v for k, v in json.loads(alias_file.read_text(encoding="utf-8")).items()} if alias_file.exists() else {}
 
-    if a.from_tsv:
+    coll_cache = Path(f"{a.out}-collections.json")
+    coll_titles = None
+    if a.patreon:
+        all_posts, coll_titles = patreon_listing(a.patreon)
+        posts = [(i, t, u) for i, t, u, kind in all_posts if kind in VIDEO_POST_TYPES]
+        print(f"  {len(all_posts)} posts on Patreon, {len(posts)} with video; {len(coll_titles)} in "
+              f"{len(set(coll_titles.values()))} collections", file=sys.stderr, flush=True)
+        coll_cache.write_text(json.dumps(coll_titles, indent=0, ensure_ascii=False), encoding="utf-8")
+        if a.save_tsv:
+            with open(a.save_tsv, "w", encoding="utf-8", newline="") as fh:
+                csv.writer(fh, delimiter="\t").writerows(posts)
+    elif a.from_tsv:
         posts = read_tsv(a.from_tsv)
     else:
         posts = list_posts(a.url, a.list_file, a.browser, a.save_tsv)   # appends to --save-tsv as it goes
@@ -319,16 +351,27 @@ def main():
     if not a.all_versions and any(rr.is_full_length(t) for _, t, _ in posts):
         skipped = [p for p in posts if not rr.is_full_length(p[1])]
         posts = [p for p in posts if rr.is_full_length(p[1])]
-    coll_cache = Path(f"{a.out}-collections.json")
-    if a.collections_from:
-        coll_of = collection_shows(patreon_collections(a.collections_from, cache=coll_cache), aliases)
+    if coll_titles is not None:
+        coll_of = collection_shows(coll_titles, aliases)
+    elif a.collections_from:
+        coll_titles = patreon_collections(a.collections_from, cache=coll_cache)
+        coll_of = collection_shows(coll_titles, aliases)
     elif a.collections:
         coll_of = collection_map(a.collections, aliases)
     elif coll_cache.exists():
-        coll_of = collection_shows(json.loads(coll_cache.read_text(encoding="utf-8")), aliases)
+        coll_titles = json.loads(coll_cache.read_text(encoding="utf-8"))
+        coll_of = collection_shows(coll_titles, aliases)
         print(f"  collections from {coll_cache} (re-run with --collections-from to refresh)", file=sys.stderr)
     else:
         coll_of = {}
+    if a.only_collections:
+        if coll_titles is None:
+            sys.exit("--only-collections needs the collections from Patreon (--patreon or --collections-from)")
+        wanted = {rr.key(COLLECTION_SUFFIX.sub("", c)) for c in a.only_collections.split(",") if c.strip()}
+        keep = {pid for pid, title in coll_titles.items() if rr.key(COLLECTION_SUFFIX.sub("", title)) in wanted}
+        before = len(posts)
+        posts = [p for p in posts if p[0] in keep]
+        print(f"  --only-collections: {len(posts)} of {before} posts are in {', '.join(sorted(wanted))}", file=sys.stderr)
     rows = classify(posts, a.root, a.creator, aliases, a.show, alias_terms(alias_file), coll_of)
     by_show = defaultdict(lambda: defaultdict(list))
     for status, show, pid, title, url, note in rows:
