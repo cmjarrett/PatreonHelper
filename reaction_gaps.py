@@ -128,6 +128,10 @@ def episode_info(title):
 
 
 TRAILER = re.compile(r"\b(trailer|teaser|opening|ending|recap)\b", re.I)
+MOVIE_WORD = re.compile(r"\b(movie|film)\b|\(\d{4}\)", re.I)
+# an episode the parser couldn't place ("Band Of Brothers E1 - Currahee", "The Pacific - Part 5", "HxH ep 27"):
+# not a movie, whatever its collection looks like
+EPISODE_LIKE = re.compile(r"\b(?:e|ep|eps|episode|part|pt|chapter)\.?\s*\d{1,3}\b", re.I)
 
 
 def alias_terms(alias_file):
@@ -145,7 +149,25 @@ def show_for_title(title, terms):
 
 
 PATREON_API = "https://www.patreon.com/api/posts"
-COLLECTION_SUFFIX = re.compile(r"\s*\b(reactions?|reacts?)\b\s*$", re.I)
+# Trailing markers on collection names that aren't part of the show: "Haikyu Reaction", "Black Mirror Collection",
+# "Attack on Titan | Watch Along", "Game Of Thrones (Early Access)", "Better Call Saul -Early Access", "Knight o/t 7
+# Kingdoms | EA", "SQUID GAME (Full Length)", "The Last Dance - All Episodes". Stripped repeatedly ("Movie Reactions | Watch Alongs").
+COLLECTION_MARKERS = re.compile(
+    r"\s*(?:[|│\-–:]\s*)?[(\[]?\s*(?:reactions?|reacts?|collection|series|watch[\s-]*alongs?|early(?:[\s-]*acces?s)?|"
+    r"full[\s-]*length|all episodes|ea|wa)\s*[)\]]?\s*!*\s*$", re.I)
+
+
+def collection_name(title):
+    """The show part of a Patreon collection title (markers stripped, see COLLECTION_MARKERS)."""
+    name = title.strip()
+    while True:
+        new = COLLECTION_MARKERS.sub("", name).strip(" -–|│:!")
+        if new == name:
+            return name
+        name = new
+
+
+COLLECTION_SUFFIX = COLLECTION_MARKERS   # kept for callers; prefer collection_name()
 
 
 VIDEO_POST_TYPES = {"video_external_file", "video_embed", "video"}   # the rest: text_only, image_file, poll, podcast, livestream ...
@@ -163,10 +185,18 @@ def patreon_listing(creator_url, every=10):
     import urllib.request
 
     def get(url, as_json=True):
+        import time
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json" if as_json else "text/html"})
-        with urllib.request.urlopen(req, timeout=60) as r:
-            body = r.read().decode("utf-8", "replace")
-        return json.loads(body) if as_json else body
+        for attempt in range(4):                           # Patreon resets the connection now and then: wait and retry
+            try:
+                with urllib.request.urlopen(req, timeout=60) as r:
+                    body = r.read().decode("utf-8", "replace")
+                return json.loads(body) if as_json else body
+            except (urllib.error.URLError, ConnectionError, TimeoutError) as e:
+                if attempt == 3:
+                    raise
+                print(f"  Patreon: {getattr(e, 'reason', e)}; retrying in {5 * 3 ** attempt} s", file=sys.stderr, flush=True)
+                time.sleep(5 * 3 ** attempt)
 
     html = get(creator_url.rstrip("/").removesuffix("/posts"), as_json=False)
     m = (re.search(r'"campaign":\{"data":\{"id":"(\d+)"', html) or re.search(r'"id":"(\d+)","type":"campaign"', html)
@@ -208,7 +238,11 @@ def patreon_collections(creator_url, cache=None):
     return result
 
 
-NON_SHOW_COLLECTION = re.compile(r"other shows|polls?\b|sketch|song|covers?\b|^movies?$|^misc|^q\s*&\s*a|announcements?", re.I)
+# Collections that aren't a show: grab bags, and movie collections ("Movie Vault", "Marvel Movie", "DC Movies"): their
+# posts are judged by their titles instead (movies go to <creator>/Movies, like the renamer files them).
+NON_SHOW_COLLECTION = re.compile(
+    r"other shows|polls?\b|sketch|song|covers?\b|\bmovies?\b|\bfilms?\b|^misc|^q\s*&\s*a|announcements?|live\s*streams?|"
+    r"vlogs?\b|bloopers?|blocked|megafan|requests?\b|playthrough|play\s*/\s*watch|lego|trailers?\b|halloween|specials?$", re.I)
 
 
 def collection_shows(coll_titles, aliases):
@@ -219,10 +253,25 @@ def collection_shows(coll_titles, aliases):
     canon = {rr.key(v): v for v in aliases.values()}
     out = {}
     for pid, title in coll_titles.items():
-        name = COLLECTION_SUFFIX.sub("", title).strip()
+        name = collection_name(title)
         if name and not NON_SHOW_COLLECTION.search(name):
+            if name.isupper():                             # "THE BEAR", "SQUID GAME": a folder name, not a shout
+                name = name.title()
             out[pid] = aliases.get(rr.key(name)) or canon.get(rr.key(name)) or rr.pretty(name)
     return out
+
+
+def post_version(title, coll_title, full_rx=None, cut_rx=None):
+    """'full' | 'cut' | None: the post's own marker ("Full Length", "Uncut" / "Edited |", "(Cut Reaction)"), else the
+    marker in its collection's name ("Severance (Full Length)", "Game Of Thrones (Early Access)"). `full_rx` /
+    `cut_rx` add a creator's own words (--full-marker / --cut-marker: "watch along", "early access")."""
+    for text in (title, coll_title or ""):
+        t = rr.normalize(text)
+        if re.match(r"\s*edited\b", t, re.I) or rr.CUT_VERSION.search(t) or (cut_rx and cut_rx.search(t)):
+            return "cut"
+        if rr.FULL_LENGTH.search(t) or (full_rx and full_rx.search(t)):
+            return "full"
+    return None
 
 
 def collection_map(folder, aliases):
@@ -242,13 +291,32 @@ def classify(posts, root, creator, aliases, show_filter=None, terms=(), coll_of=
     idx, _display = rr.library_index(root, aliases)
     rows, seen = [], {}
     coll_of = coll_of or {}
+    infos = {pid: episode_info(title) for pid, title, _ in posts}
+    # share of posts with an episode number per collection: a franchise collection of movies ("John Wick",
+    # "X-Men", "The Lord of the Rings") has none, a show's collection has most
+    ep_count, n_count = defaultdict(int), defaultdict(int)
+    for pid, _, _ in posts:
+        if pid in coll_of:
+            n_count[coll_of[pid]] += 1
+            ep_count[coll_of[pid]] += "season" in infos[pid]
+    movie_collection = {c for c in n_count if n_count[c] >= 2 and ep_count[c] / n_count[c] < 0.25}
     for pid, title, url in posts:
-        info = episode_info(title)
+        info = infos[pid]
         coll = coll_of.get(pid)                            # the collection's show, when the post is in one
         if coll and "season" in info:
-            info["hint"] = coll
+            # the title's own show wins when it names an existing folder of this creator: a "Marvel Cinematic
+            # Universe" collection holds Daredevil episodes, and those belong in Daredevil
+            own = rr.find_show(info.get("hint", ""), idx, aliases, creator) if info.get("hint") else []
+            if len(own) != 1:
+                info["hint"] = coll
         if "season" not in info:
-            hit = None if TRAILER.search(title) else (coll or show_for_title(title, terms))
+            # a movie in a franchise collection is still a movie ("John Wick 2", "Logan"); but inside a show's
+            # collection a bare number ("HxH 100", "DS 21") is an episode the parser couldn't place, not a movie,
+            # unless the title says movie/film or carries a year
+            movie = rr.is_movie(title, info) and (not coll or MOVIE_WORD.search(title) or (
+                not EPISODE_LIKE.search(title) and (coll in movie_collection
+                                                   or not re.search(r"\d\s*$", rr.normalize(title).rstrip(" !.)")))))
+            hit = None if (movie or TRAILER.search(title)) else (coll or show_for_title(title, terms))
             if hit:                                        # a show named without an episode number: "AOT OVA 4", "... with my Girlfriend"
                 if show_filter and rr.key(show_filter) != rr.key(hit):
                     continue
@@ -256,7 +324,7 @@ def classify(posts, root, creator, aliases, show_filter=None, terms=(), coll_of=
                 show = cands[0][1].name if len(cands) == 1 else hit   # report under the folder's name (JJK, not Jujutsu Kaisen)
                 rows.append(("missing" if cands else "new show", show, pid, title, url, ""))
                 continue
-            if rr.is_movie(title, info):                   # compared with <creator>/Movies (years ignored)
+            if movie:                                      # compared with <creator>/Movies (years ignored)
                 if show_filter and rr.key(show_filter) != "movies":
                     continue
                 name = rr.movie_title(title + ".mp4")
@@ -318,6 +386,13 @@ def main():
     ap.add_argument("--collections", default=None,
                     help="folder of collection URL lists, one '<Show>.txt' per Patreon collection: a post in one is "
                          "that show, whatever its title says")
+    ap.add_argument("--full-marker", metavar="REGEX", help="a creator's own word for the full reaction, in titles or "
+                    "collection names (e.g. 'watch along'); 'Full Length' / 'Unedited' / 'Uncut' always count")
+    ap.add_argument("--cut-marker", metavar="REGEX", help="a creator's own word for the edited one (e.g. 'early access'); "
+                    "'Edited |' and '(Cut Reaction)' always count")
+    ap.add_argument("--unmarked", choices=["edited", "full"], default="edited",
+                    help="what an unmarked post is when the creator marks some posts full-length (default: edited, so "
+                         "it's skipped; 'full' for creators that mark the edited ones instead)")
     ap.add_argument("--only-collections", metavar="A,B,...",
                     help="keep only posts in these Patreon collections (names as shown by Patreon, 'Reaction' suffix "
                          "optional, case-insensitive): for a creator where only some shows are wanted")
@@ -347,10 +422,6 @@ def main():
     else:
         posts = list_posts(a.url, a.list_file, a.browser, a.save_tsv)   # appends to --save-tsv as it goes
 
-    skipped = []
-    if not a.all_versions and any(rr.is_full_length(t) for _, t, _ in posts):
-        skipped = [p for p in posts if not rr.is_full_length(p[1])]
-        posts = [p for p in posts if rr.is_full_length(p[1])]
     if coll_titles is not None:
         coll_of = collection_shows(coll_titles, aliases)
     elif a.collections_from:
@@ -367,11 +438,21 @@ def main():
     if a.only_collections:
         if coll_titles is None:
             sys.exit("--only-collections needs the collections from Patreon (--patreon or --collections-from)")
-        wanted = {rr.key(COLLECTION_SUFFIX.sub("", c)) for c in a.only_collections.split(",") if c.strip()}
-        keep = {pid for pid, title in coll_titles.items() if rr.key(COLLECTION_SUFFIX.sub("", title)) in wanted}
+        wanted = {rr.key(collection_name(c)) for c in a.only_collections.split(",") if c.strip()}
+        keep = {pid for pid, title in coll_titles.items() if rr.key(collection_name(title)) in wanted}
         before = len(posts)
         posts = [p for p in posts if p[0] in keep]
         print(f"  --only-collections: {len(posts)} of {before} posts are in {', '.join(sorted(wanted))}", file=sys.stderr)
+    # full-length only: a post's own marker, else its collection's; unmarked posts are edited (Emme, Haylo & Kiss:
+    # the full ones say so) unless --unmarked full (Diegesis: "Early Access" = edited, the rest is full)
+    skipped = []
+    full_rx = re.compile(a.full_marker, re.I) if a.full_marker else None
+    cut_rx = re.compile(a.cut_marker, re.I) if a.cut_marker else None
+    version = {pid: post_version(title, (coll_titles or {}).get(pid), full_rx, cut_rx) for pid, title, _ in posts}
+    if not a.all_versions and any(v == "full" for v in version.values()):
+        keep = {"full"} | ({None} if a.unmarked == "full" else set())
+        skipped = [p for p in posts if version[p[0]] not in keep]
+        posts = [p for p in posts if version[p[0]] in keep]
     rows = classify(posts, a.root, a.creator, aliases, a.show, alias_terms(alias_file), coll_of)
     by_show = defaultdict(lambda: defaultdict(list))
     for status, show, pid, title, url, note in rows:

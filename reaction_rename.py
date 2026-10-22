@@ -112,7 +112,14 @@ def parse(filename):
         list(range(ep_idx - 1, -1, -1)) + [ep_idx] + list(range(ep_idx + 1, len(parts)))
     hint = ""
     for i in order:
-        p2 = parts[i].replace(m.group(0), "") if i == ep_idx else parts[i]
+        if i == ep_idx:
+            # "The Office S1 E1 - Pilot (Uncut Version)": the show is what comes BEFORE the episode number; what
+            # follows is the episode's title. Only when nothing usable precedes it ("2x12 Korra Reaction!") the rest counts.
+            at = parts[i].find(m.group(0))
+            before = clean_hint(NOISE.sub("", parts[i][:at]).strip(" -:"))
+            p2 = before if before else parts[i].replace(m.group(0), "")
+        else:
+            p2 = parts[i]
         p2 = clean_hint(NOISE.sub("", p2).strip(" -:"))   # "Season 4" alone is not a show ("Show | Season 4 | Ep. 3")
         if p2:
             hint = p2
