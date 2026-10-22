@@ -73,6 +73,7 @@ python .\reaction_gaps.py --root "\\nas\media\reaction" --creator "Some Creator"
 - `--include-partial` adds posts that are only partly in the library; `--list-file` takes a collection's URL list instead of `--url`.
 - `--seed-archive C:\patreon\downloaded.txt` writes the posts you already have into yt-dlp's download archive, so later full-creator runs skip them on their own.
 - Listing a big creator takes a while (yt-dlp reads each post); `--save-tsv` / `--from-tsv` avoid repeating it.
+- **Creators who name posts by abbreviation** (`HY 2x14`, `VM 4x12`): `--collections-from https://www.patreon.com/<name>` reads every post's Patreon collection from the public API (no login, ~30 requests for 3,000 posts) and uses the collection's name, minus "Reaction", as the show, through the aliases. Saved to `<out>-collections.json` and reused by later `--from-tsv` runs. Grab-bag collections ("All other shows!", polls, sketches) are ignored. For creators without usable collections, `--collections <folder>` takes hand-made `<Show>.txt` URL lists instead.
 
 ### 2. File them: `reaction_rename.py`
 ```powershell

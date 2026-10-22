@@ -127,12 +127,121 @@ def episode_info(title):
     return info
 
 
-def classify(posts, root, creator, aliases, show_filter=None):
+TRAILER = re.compile(r"\b(trailer|teaser|opening|ending|recap)\b", re.I)
+
+
+def alias_terms(alias_file):
+    """(regex, show) pairs for show names in titles that have no episode number ("AOT OVA 4" -> Attack on Titan).
+    Longest name first; aliases under 3 letters ("IN", "CE") are left out, they hit too much other text."""
+    raw = json.loads(alias_file.read_text(encoding="utf-8")) if alias_file.exists() else {}
+    names = {**raw, **{v: v for v in raw.values()}}
+    names = sorted(((k, v) for k, v in names.items() if len(rr.key(k)) >= 3), key=lambda t: -len(t[0]))
+    return [(re.compile(r"(?<![A-Za-z0-9])" + re.escape(k) + r"(?![A-Za-z0-9])", re.I), v) for k, v in names]
+
+
+def show_for_title(title, terms):
+    t = rr.normalize(title)
+    return next((v for rx, v in terms if rx.search(t)), None)
+
+
+PATREON_API = "https://www.patreon.com/api/posts"
+COLLECTION_SUFFIX = re.compile(r"\s*\b(reactions?|reacts?)\b\s*$", re.I)
+
+
+def patreon_collections(creator_url, cache=None, every=10):
+    """post id -> collection title for every post of a creator, from Patreon's public JSON API.
+
+    No login needed: titles and collection membership are visible for patron-only posts too. The creator page
+    gives the campaign id; then /api/posts?filter[campaign_id]=... with include=collections, 100 posts per
+    request, following the cursor links (a 3,000-post creator is ~30 requests). A post in several collections
+    keeps the first. `cache` (a JSON file) is written at the end and lets --from-tsv runs stay offline.
+    """
+    import urllib.parse
+    import urllib.request
+
+    def get(url, as_json=True):
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json" if as_json else "text/html"})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            body = r.read().decode("utf-8", "replace")
+        return json.loads(body) if as_json else body
+
+    html = get(creator_url, as_json=False)
+    m = re.search(r'"campaign":\{"data":\{"id":"(\d+)"', html) or re.search(r"/campaigns/(\d+)", html)
+    if not m:
+        sys.exit(f"no campaign id found on {creator_url} (is it the creator's page?)")
+    q = {"filter[campaign_id]": m[1], "include": "collections", "fields[post]": "title",
+         "fields[collection]": "title", "sort": "-published_at", "page[count]": "100", "json-api-version": "1.0"}
+    url = PATREON_API + "?" + urllib.parse.urlencode(q)
+    titles, coll_of, pages = {}, {}, 0
+    while url:
+        d = get(url)
+        pages += 1
+        for inc in d.get("included", []):
+            if inc.get("type") == "collection":
+                titles[inc["id"]] = (inc.get("attributes") or {}).get("title") or ""
+        for p in d.get("data", []):
+            ids = [c["id"] for c in ((p.get("relationships") or {}).get("collections") or {}).get("data") or []]
+            if ids:
+                coll_of[p["id"]] = ids[0]
+        url = (d.get("links") or {}).get("next")
+        if pages % every == 0:
+            print(f"  {pages * 100} posts' collections read ...", file=sys.stderr, flush=True)
+    result = {pid: titles[cid] for pid, cid in coll_of.items() if titles.get(cid)}
+    if cache:
+        Path(cache).write_text(json.dumps(result, indent=0, ensure_ascii=False), encoding="utf-8")
+    print(f"  collections: {len(result)} posts in {len(set(result.values()))} collections"
+          + (f" (saved to {cache})" if cache else ""), file=sys.stderr, flush=True)
+    return result
+
+
+NON_SHOW_COLLECTION = re.compile(r"other shows|polls?\b|sketch|song|covers?\b|^movies?$|^misc|^q\s*&\s*a|announcements?", re.I)
+
+
+def collection_shows(coll_titles, aliases):
+    """post id -> show, from collection titles: a trailing 'Reaction' is dropped and the aliases apply
+    ('Xmen 97 Reaction' -> X-Men '97, 'Haikyu Reaction' -> Haikyu); a name that is already an alias target keeps
+    that spelling ('Attack On Titan' -> Attack on Titan). Grab-bag collections ('All other shows!', polls, sketches,
+    song covers, 'Movie Reactions') give no show, so those posts are judged by their titles. Same shape as collection_map()."""
+    canon = {rr.key(v): v for v in aliases.values()}
+    out = {}
+    for pid, title in coll_titles.items():
+        name = COLLECTION_SUFFIX.sub("", title).strip()
+        if name and not NON_SHOW_COLLECTION.search(name):
+            out[pid] = aliases.get(rr.key(name)) or canon.get(rr.key(name)) or rr.pretty(name)
+    return out
+
+
+def collection_map(folder, aliases):
+    """post id -> show, from a folder of Patreon collection URL lists: one '<Show>.txt' per collection
+    (the Clean-Patreon-PlayList-HTML.ps1 output). The file name is the show, so titles don't have to name it."""
+    coll_of = {}
+    for f in sorted(Path(folder).glob("*.txt")):
+        show = aliases.get(rr.key(f.stem), f.stem)
+        for line in f.read_text(encoding="utf-8").splitlines():
+            m = re.search(r"(\d{6,})", line)
+            if m:
+                coll_of.setdefault(m[1], show)
+    return coll_of
+
+
+def classify(posts, root, creator, aliases, show_filter=None, terms=(), coll_of=None):
     idx, _display = rr.library_index(root, aliases)
     rows, seen = [], {}
+    coll_of = coll_of or {}
     for pid, title, url in posts:
         info = episode_info(title)
+        coll = coll_of.get(pid)                            # the collection's show, when the post is in one
+        if coll and "season" in info:
+            info["hint"] = coll
         if "season" not in info:
+            hit = None if TRAILER.search(title) else (coll or show_for_title(title, terms))
+            if hit:                                        # a show named without an episode number: "AOT OVA 4", "... with my Girlfriend"
+                if show_filter and rr.key(show_filter) != rr.key(hit):
+                    continue
+                cands = rr.find_show(hit, idx, aliases, creator)
+                show = cands[0][1].name if len(cands) == 1 else hit   # report under the folder's name (JJK, not Jujutsu Kaisen)
+                rows.append(("missing" if cands else "new show", show, pid, title, url, ""))
+                continue
             if rr.is_movie(title, info):                   # compared with <creator>/Movies (years ignored)
                 if show_filter and rr.key(show_filter) != "movies":
                     continue
@@ -188,6 +297,13 @@ def main():
                          "creator marks any that way)")
     ap.add_argument("--browser", default="firefox")
     ap.add_argument("--aliases", default=None)
+    ap.add_argument("--collections", default=None,
+                    help="folder of collection URL lists, one '<Show>.txt' per Patreon collection: a post in one is "
+                         "that show, whatever its title says")
+    ap.add_argument("--collections-from", metavar="CREATOR_URL",
+                    help="read every post's collection from Patreon itself (public API, no login; the creator page URL, "
+                         "e.g. https://www.patreon.com/<name>): the collection title, minus 'Reaction', is the show. "
+                         "Saved to <out>-collections.json and reused by later --from-tsv runs without this option")
     a = ap.parse_args()
 
     local = Path(rr.__file__).with_name("reaction-aliases.json")
@@ -203,7 +319,17 @@ def main():
     if not a.all_versions and any(rr.is_full_length(t) for _, t, _ in posts):
         skipped = [p for p in posts if not rr.is_full_length(p[1])]
         posts = [p for p in posts if rr.is_full_length(p[1])]
-    rows = classify(posts, a.root, a.creator, aliases, a.show)
+    coll_cache = Path(f"{a.out}-collections.json")
+    if a.collections_from:
+        coll_of = collection_shows(patreon_collections(a.collections_from, cache=coll_cache), aliases)
+    elif a.collections:
+        coll_of = collection_map(a.collections, aliases)
+    elif coll_cache.exists():
+        coll_of = collection_shows(json.loads(coll_cache.read_text(encoding="utf-8")), aliases)
+        print(f"  collections from {coll_cache} (re-run with --collections-from to refresh)", file=sys.stderr)
+    else:
+        coll_of = {}
+    rows = classify(posts, a.root, a.creator, aliases, a.show, alias_terms(alias_file), coll_of)
     by_show = defaultdict(lambda: defaultdict(list))
     for status, show, pid, title, url, note in rows:
         by_show[show][status].append((note or title))
