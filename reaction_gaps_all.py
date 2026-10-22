@@ -60,6 +60,12 @@ def main():
             cmd.append("--include-movies")
         if opts.get("include"):
             cmd += ["--only-collections", ",".join(opts["include"])]
+        if opts.get("full_markers"):                     # creator's own words: ["watch along"]
+            cmd += ["--full-marker", "|".join(opts["full_markers"])]
+        if opts.get("cut_markers"):                      # ["early access", "first time"]
+            cmd += ["--cut-marker", "|".join(opts["cut_markers"])]
+        if opts.get("unmarked"):                         # "full" | "edited"
+            cmd += ["--unmarked", opts["unmarked"]]
         print(f"\n{'=' * 78}\n{name}  ({c['url']})\n{'=' * 78}", flush=True)
         r = subprocess.run(cmd, text=True, encoding="utf-8", errors="replace")
         coll_file = out_dir / f"{s}-collections.json"
