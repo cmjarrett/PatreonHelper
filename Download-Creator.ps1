@@ -34,13 +34,23 @@ param(
     [switch] $Preview                                    # list what would be downloaded, download nothing
 )
 $ErrorActionPreference = 'Stop'
-if ([bool]$Url -eq [bool]$ListFile) { throw 'Give exactly one of -Url (creator page) or -ListFile (post URL list).' }
-if (-not (Get-Command yt-dlp -ErrorAction SilentlyContinue)) { throw 'yt-dlp not found (winget install yt-dlp.yt-dlp).' }
+
+# ---- 1. check the inputs and the tools ----
+$gaveBothOrNeither = [bool]$Url -eq [bool]$ListFile          # true when both are given, or neither
+if ($gaveBothOrNeither) { throw 'Give exactly one of -Url (creator page) or -ListFile (post URL list).' }
+
+$haveYtDlp = Get-Command yt-dlp -ErrorAction SilentlyContinue
+if (-not $haveYtDlp) { throw 'yt-dlp not found (winget install yt-dlp.yt-dlp).' }
+
+# the creator becomes a folder name, so it can't hold characters Windows folders refuse
 if ($Creator -match '[<>:"/\\|?*]') { throw "Creator folder name can't contain < > : "" / \ | ? *" }
 
+# ---- 2. the inbox folder for this creator, and the folder for the archive file ----
 $dest = Join-Path $Inbox $Creator
-New-Item -ItemType Directory -Force -Path $dest, (Split-Path $Archive) | Out-Null
+$archiveFolder = Split-Path $Archive
+New-Item -ItemType Directory -Force -Path $dest, $archiveFolder | Out-Null
 
+# ---- 3. the yt-dlp arguments ----
 $ytArgs = @(
     '--cookies-from-browser', $Browser,
     '--download-archive', $Archive,
@@ -48,11 +58,19 @@ $ytArgs = @(
     '--windows-filenames', '--trim-filenames', '180',
     '-o', (Join-Path $dest '%(title)s [%(id)s].%(ext)s')
 )
+
+# optional filters
 if ($Match) { $ytArgs += @('--match-filters', "title~='(?i)$Match'") }
 if ($After) { $ytArgs += @('--dateafter', $After) }
 if ($Preview) { $ytArgs += @('--simulate', '--print', '%(upload_date)s  %(title)s') }
+
+# where the posts come from: a creator page, or a file of post URLs
 if ($Url) { $ytArgs += $Url } else { $ytArgs += @('-a', $ListFile) }
 
-Write-Host "yt-dlp -> $dest$(if ($Preview) { '  (preview only)' })"
+# ---- 4. run it ----
+$previewNote = if ($Preview) { '  (preview only)' }
+Write-Host "yt-dlp -> $dest$previewNote"
 & yt-dlp @ytArgs
+
+# ---- 5. what to do next ----
 Write-Host "`nNext: python reaction_rename.py --root ""\\nas\media\reaction"" --src ""$Inbox"" (dry run, then --apply; --new-shows for shows the library doesn't have yet)"
