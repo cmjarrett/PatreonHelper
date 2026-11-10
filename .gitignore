@@ -17,3 +17,6 @@ __pycache__/
 *.yt-dlp.log
 gaps-missing.txt
 gaps-review.txt
+
+# Claude Code per-machine settings (may hold keys such as LAB_GATEWAY_KEY); never committed
+.claude/settings.local.json
