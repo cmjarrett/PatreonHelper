@@ -18,3 +18,5 @@ jobs:
           python-version: "3.12"
       - run: python test_reaction_rename.py
       - run: python test_reaction_gaps.py
+      - run: python test_reaction_survey.py
+      - run: pwsh ./test_sync_reactions.ps1
