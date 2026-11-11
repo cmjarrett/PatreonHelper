@@ -9,6 +9,8 @@ matches every title against the library with reaction_rename's parser, and write
   * a report per show   have / missing / partial / new show / not an episode (movies, trailers, ...)
   * optionally (--seed-archive) "patreon <id>" lines for the posts you already have into yt-dlp's download
     archive, so later full-creator runs skip them by themselves.
+With --archive (the same file) a post that was downloaded once is "fetched before" and stays out of the list, also
+after its file was deleted from the library; --never / --never-file keep whole shows out (see reaction_ledger.py).
 
 Usage (dev PC, Firefox logged in to Patreon):
   python reaction_gaps.py --root "\\\\nas\\media\\reaction" --creator "Some Creator" --url https://www.patreon.com/c/<name>/posts
@@ -35,6 +37,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import reaction_rename as rr  # noqa: E402
+import reaction_ledger as ledger  # noqa: E402
 
 
 # ======================================================================================================
@@ -515,10 +518,46 @@ def classify(posts, root, creator, aliases, show_filter=None, terms=(), coll_of=
 
 
 # ======================================================================================================
+# The download record and the never-keep list
+# ======================================================================================================
+
+# statuses a download list can hold; "have" and "other" are never downloaded anyway
+DOWNLOADABLE = ("missing", "partial", "new show", "ambiguous")
+
+
+def apply_ledger(rows, fetched_ids=(), never_keys=(), coll_titles=None):
+    """Re-label the posts that must not be downloaded, whatever the library holds today:
+      never keep       the post's show (or its Patreon collection) is on the never-keep list ('*' = everything)
+      fetched before   the post id is in the download record: it was downloaded once, and a file that was deleted
+                       from the library since is not a reason to fetch it again
+    Rows keep their shape: (status, show, post id, title, url, note)."""
+    fetched_ids = set(fetched_ids)
+    never_keys = set(never_keys)
+    coll_titles = coll_titles or {}
+    relabelled = []
+    for row in rows:
+        status, show, post_id = row[0], row[1], row[2]
+        if status in DOWNLOADABLE:
+            names = {rr.key(show)}
+            if post_id in coll_titles:
+                names.add(rr.key(collection_name(coll_titles[post_id])))
+            if "*" in never_keys or names & never_keys:
+                status = "never keep"
+            elif post_id in fetched_ids:
+                status = "fetched before"
+        relabelled.append((status,) + tuple(row[1:]))
+    return relabelled
+
+
+# ======================================================================================================
 # Command line
 # ======================================================================================================
 
 def main():
+    # output piped to a file or a log uses the console code page on Windows: a title it can't hold must not stop the run
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(errors="replace")
+
     # ---- 1. arguments ----
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--root", required=True, help="library root, e.g. \\\\nas\\media\\reaction")
@@ -535,6 +574,11 @@ def main():
     parser.add_argument("--show", help="only this show")
     parser.add_argument("--out", default="gaps", help="prefix for the output files (default: gaps)")
     parser.add_argument("--seed-archive", help="append 'patreon <id>' for posts you already have to this yt-dlp archive")
+    parser.add_argument("--archive", help="the download record (yt-dlp's archive file): a post in it was fetched once and "
+                        "is left out of the missing list, also when its file was deleted from the library since")
+    parser.add_argument("--never", action="append", default=[], metavar="SHOW",
+                        help="never download this show (library folder or Patreon collection name; repeatable)")
+    parser.add_argument("--never-file", help="the never-keep list ('Creator | Show' per line, see reaction_ledger.py)")
     parser.add_argument("--include-partial", action="store_true", help="also put partly-present posts in the missing list")
     parser.add_argument("--include-new", action="store_true",
                         help="also put shows the library doesn't have yet in the missing list (import them with "
@@ -642,6 +686,14 @@ def main():
     # ---- 7. compare with the library and print the report ----
     rows = classify(posts, args.root, args.creator, aliases, args.show, alias_terms(alias_file), coll_of)
 
+    # the download record and the never-keep list win over what the library holds today
+    fetched_ids = ledger.fetched_post_ids(args.archive) if args.archive else set()
+    never_keys = {rr.key(aliases.get(rr.key(name), name)) for name in args.never} | {rr.key(name) for name in args.never}
+    if args.never_file:
+        never_keys |= ledger.never_keys_for(args.never_file, args.creator)
+    never_keys.discard("")
+    rows = apply_ledger(rows, fetched_ids, never_keys, coll_titles)
+
     by_show = defaultdict(lambda: defaultdict(list))       # show -> status -> [note or title]
     for status, show, pid, title, url, note in rows:
         by_show[show][status].append(note or title)
@@ -682,6 +734,10 @@ def main():
     Path(f"{args.out}-review.txt").write_text("".join(f"{row[0]}\t{row[3]}\t{row[4]}\n" for row in to_review),
                                               encoding="utf-8")
 
+    fetched_before = sum(row[0] == "fetched before" for row in rows)
+    never_keep = sum(row[0] == "never keep" for row in rows)
+    if fetched_before or never_keep:
+        print(f"\nleft out: {fetched_before} fetched before (in {args.archive}), {never_keep} on the never-keep list")
     print(f"\n{len(to_download)} posts to download -> {args.out}-missing.txt   ({len(to_review)} to look at -> {args.out}-review.txt)")
     print(f'Next: .\\Download-Creator.ps1 -Creator "{args.creator}" -ListFile {args.out}-missing.txt')
     if args.include_new or args.include_movies:
@@ -690,14 +746,8 @@ def main():
     # ---- 9. --seed-archive: tell yt-dlp about the posts already owned ----
     if args.seed_archive:
         owned_ids = [row[2] for row in rows if row[0] == "have"]
-        archive_path = Path(args.seed_archive)
-        archive_path.parent.mkdir(parents=True, exist_ok=True)       # first run, before Download-Creator created it
-
-        existing_lines = set(archive_path.read_text(encoding="utf-8").split("\n")) if archive_path.exists() else set()
-        new_lines = [f"patreon {post_id}" for post_id in owned_ids if f"patreon {post_id}" not in existing_lines]
-        with open(archive_path, "a", encoding="utf-8") as fh:
-            fh.write("".join(line + "\n" for line in new_lines))
-        print(f"seeded {len(new_lines)} already-owned posts into {archive_path} (future full runs skip them)")
+        added = ledger.add_to_archive(args.seed_archive, [f"patreon {post_id}" for post_id in owned_ids])
+        print(f"seeded {added} already-owned posts into {args.seed_archive} (future full runs skip them)")
 
 
 if __name__ == "__main__":

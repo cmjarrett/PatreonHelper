@@ -20,3 +20,6 @@ gaps-review.txt
 
 # Claude Code per-machine settings (may hold keys such as LAB_GATEWAY_KEY); never committed
 .claude/settings.local.json
+never-keep.txt
+sync-plan.json
+survey.tsv

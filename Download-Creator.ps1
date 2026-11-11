@@ -31,7 +31,8 @@ param(
     [string] $Archive = 'C:\patreon\downloaded.txt',
     [ValidateSet('brave', 'chrome', 'chromium', 'edge', 'firefox', 'opera', 'safari', 'vivaldi', 'whale')]
     [string] $Browser = 'firefox',
-    [switch] $Preview                                    # list what would be downloaded, download nothing
+    [int] $MaxDownloads = 0,                             # stop after this many downloads (0 = no limit); the rest waits for the next run
+    [switch] $Preview                                   # list what would be downloaded, download nothing
 )
 $ErrorActionPreference = 'Stop'
 
@@ -62,6 +63,7 @@ $ytArgs = @(
 # optional filters
 if ($Match) { $ytArgs += @('--match-filters', "title~='(?i)$Match'") }
 if ($After) { $ytArgs += @('--dateafter', $After) }
+if ($MaxDownloads -gt 0) { $ytArgs += @('--max-downloads', "$MaxDownloads") }
 if ($Preview) { $ytArgs += @('--simulate', '--print', '%(upload_date)s  %(title)s') }
 
 # where the posts come from: a creator page, or a file of post URLs

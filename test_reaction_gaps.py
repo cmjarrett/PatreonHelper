@@ -107,6 +107,98 @@ with tempfile.TemporaryDirectory() as tmp:
           sorted(Path(f"{out}-missing.txt").read_text(encoding="utf-8", errors="replace").split()),
           [f"https://www.patreon.com/posts/{i}" for i in (201, 202, 203)])
 
+# The download record and the never-keep list: what was fetched once, or is never wanted, stays out of the list
+# whatever the library holds
+with tempfile.TemporaryDirectory() as tmp:
+    root = Path(tmp, "reaction")
+    Path(root, "Creator A", "Vinland Saga").mkdir(parents=True)
+    Path(root, "Creator A", "Vinland Saga", "Vinland Saga - S01E01.mp4").write_bytes(b"x")
+    tsv = Path(tmp, "posts.tsv")
+    tsv.write_text("".join("\t".join(p) + "\n" for p in [
+        ("401", "Vinland Saga ｜ 1x1", "https://www.patreon.com/posts/401"),      # have
+        ("402", "Vinland Saga ｜ 1x2", "https://www.patreon.com/posts/402"),      # fetched once, deleted since
+        ("403", "Vinland Saga ｜ 1x3", "https://www.patreon.com/posts/403"),      # really missing
+        ("404", "Dull Show ｜ 1x1", "https://www.patreon.com/posts/404"),         # never keep
+        ("405", "Other Show ｜ 1x1", "https://www.patreon.com/posts/405"),        # new show, wanted
+    ]), encoding="utf-8")
+    arch = Path(tmp, "downloaded.txt")
+    arch.write_text("patreon 402\nyoutube abcdefghijk", encoding="utf-8")        # no final newline, like a cut-off file
+    never = Path(tmp, "never-keep.txt")
+    out = Path(tmp, "gaps")
+    ledger_cmd = [sys.executable, str(HERE / "reaction_ledger.py")]
+    gaps_cmd = [sys.executable, str(HERE / "reaction_gaps.py"), "--root", str(root), "--creator", "Creator A",
+                "--from-tsv", str(tsv), "--out", str(out), "--include-new", "--archive", str(arch),
+                "--seed-archive", str(arch), "--never-file", str(never)]
+    run = lambda cmd: subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    listed = lambda: sorted(u.rsplit("/", 1)[1] for u in Path(f"{out}-missing.txt").read_text(encoding="utf-8").split())
+
+    r = run(ledger_cmd + ["never", "Creator A", "Dull Show", "--file", str(never)])
+    check("never: entry added", "added to" in r.stdout, True)
+    r = run(gaps_cmd)
+    check("fetched-before and never-keep posts are not listed", listed(), ["403", "405"])
+    check("report counts what was left out", "left out: 1 fetched before" in r.stdout and "1 on the never-keep list" in r.stdout, True)
+    check("owned post seeded, record keeps its lines", sorted(arch.read_text(encoding="utf-8").split("\n")),
+          ["", "patreon 401", "patreon 402", "youtube abcdefghijk"])
+
+    # the owner deletes the episode from the library: it must not come back
+    Path(root, "Creator A", "Vinland Saga", "Vinland Saga - S01E01.mp4").unlink()
+    run(gaps_cmd)
+    check("deleted from the library after a run: still not listed", listed(), ["403", "405"])
+
+    run(ledger_cmd + ["never", "Creator A", "--file", str(never)])              # the whole creator
+    run(gaps_cmd)
+    check("never: whole creator", listed(), [])
+    run(ledger_cmd + ["never", "Creator A", "--file", str(never), "--remove"])
+    run(gaps_cmd)
+    check("never --remove brings the creator back, the show stays out", listed(), ["403", "405"])
+    r = run(gaps_cmd + ["--never", "Other Show"])
+    check("--never on the command line", listed(), ["403"])
+
+    # seeding: finished files in an inbox, and a URL list
+    inbox = Path(tmp, "inbox", "Creator A")
+    inbox.mkdir(parents=True)
+    for name in ("Vinland Saga ｜ 1x3 [403].mp4", "Embedded video [abcdefghijk].mp4", "Half done [405].mp4.part",
+                 "No id here.mp4"):
+        Path(inbox, name).write_bytes(b"x")
+    r = run(ledger_cmd + ["seed", "--archive", str(arch), "--inbox", str(inbox.parent), "--dry-run"])
+    check("seed --dry-run writes nothing", "patreon 403" in arch.read_text(encoding="utf-8"), False)
+    r = run(ledger_cmd + ["seed", "--archive", str(arch), "--inbox", str(inbox.parent)])
+    check("seed --inbox: finished files only, known lines not repeated", "added 1 to" in r.stdout, True)
+    run(gaps_cmd)
+    check("seeded from the inbox: not listed again (the .part file is)", listed(), ["405"])
+    urls = Path(tmp, "old-list.txt")
+    urls.write_text("https://www.patreon.com/posts/other-show-1x1-405?utm=x\nhttps://www.patreon.com/posts/406\n"
+                    "patreon 407\n408000\nnot a post\n", encoding="utf-8")
+    r = run(ledger_cmd + ["seed", "--archive", str(arch), "--ids-from", str(urls)])
+    check("seed --ids-from: URLs with a title slug, bare URLs, record lines, bare ids", "added 4 to" in r.stdout, True)
+    run(gaps_cmd)
+    check("everything fetched or seeded: nothing to download", listed(), [])
+    r = run(ledger_cmd + ["status", "--archive", str(arch), "--file", str(never)])
+    check("status", "8 entries (patreon 7, youtube 1)" in r.stdout and "Creator A | Dull Show" in r.stdout, True)
+
+    # reaction_gaps_all: exclude from the creators file, "sync": false, the plan, and the unreachable-library stop
+    import json
+    cfg = Path(tmp, "creators.json")
+    cfg.write_text(json.dumps({
+        "_defaults": {"exclude": ["Other Show"]},
+        "Creator A": {"url": "https://www.patreon.com/a", "handling": "patreon"},
+        "Creator B": {"url": "https://www.patreon.com/b", "handling": "patreon", "sync": False},
+    }), encoding="utf-8")
+    state = Path(tmp, "state")
+    state.mkdir()
+    (state / "creatora.tsv").write_text(tsv.read_text(encoding="utf-8"), encoding="utf-8")
+    arch.write_text("", encoding="utf-8")
+    Path(root, "Creator A", "Vinland Saga", "Vinland Saga - S01E01.mp4").write_bytes(b"x")
+    all_cmd = [sys.executable, str(HERE / "reaction_gaps_all.py"), "--creators", str(cfg), "--out-dir", str(state),
+               "--archive", str(arch), "--never-file", str(never), "--offline"]
+    r = run(all_cmd + ["--root", str(root)])
+    plan = json.loads((state / "sync-plan.json").read_text(encoding="utf-8"))
+    check("plan: one creator, exclude + never-keep applied", [(p["creator"], p["count"]) for p in plan], [("Creator A", 2)])
+    check("sync false is left out", '-- Creator B: left out ("sync": false)' in r.stdout, True)
+    check("the run seeds the owned post", "patreon 401" in arch.read_text(encoding="utf-8"), True)
+    r = run(all_cmd + ["--root", str(Path(tmp, "not-mounted"))])
+    check("unreachable library: stops, lists nothing", r.returncode != 0 and "not reachable" in r.stderr, True)
+
 # Streaming listing + resume, with a fake yt-dlp on PATH (POSIX only: Windows won't run a script named "yt-dlp")
 if sys.platform != "win32":
     import os
