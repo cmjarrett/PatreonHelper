@@ -110,6 +110,9 @@ def main():
         # never these shows: the creator's own list and the defaults' together
         for show in list(defaults.get("exclude") or []) + list(creator_config.get("exclude") or []):
             cmd += ["--never", show]
+        # "folders": other spellings of this creator's library folder (a name that differs by a letter)
+        for folder in creator_config.get("folders") or []:
+            cmd += ["--creator-folder", folder]
         if args.aliases:
             cmd += ["--aliases", args.aliases]
         if options.get("new_shows", True):

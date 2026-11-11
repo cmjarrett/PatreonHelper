@@ -418,10 +418,24 @@ def looks_like_movie(title, info, coll, movie_collection):
     return not title_ends_in_number
 
 
-def classify(posts, root, creator, aliases, show_filter=None, terms=(), coll_of=None):
+def classify(posts, root, creator, aliases, show_filter=None, terms=(), coll_of=None, creator_names=()):
     """One row per post: (status, show, post id, title, url, note).
-    status: have | missing | partial | new show | ambiguous | other."""
+    status: have | missing | partial | new show | ambiguous | other.
+    `creator_names`: other spellings of the creator's library folder. Folder names are compared without spaces,
+    case and punctuation anyway ("Some Creator" = "SomeCreator"); a name that differs by a letter goes here."""
     library_idx, _display = rr.library_index(root, aliases)
+    names = [creator, *creator_names]
+    creator_dirs = rr.creator_folders(root, names)         # every library folder that is this creator
+    same_show_dirs = {}                                    # show folder -> the same show in the creator's other folders
+
+    def find_show(hint):
+        """rr.find_show for this creator. The same show in two of the creator's folders is one show."""
+        found = rr.find_show(hint, library_idx, aliases, names)
+        if len(found) > 1 and len({rr.key(show_dir.name) for _, show_dir in found}) == 1:
+            same_show_dirs[found[0][1]] = [show_dir for _, show_dir in found[1:]]
+            return found[:1]
+        return found
+
     rows = []
     new_show_names = {}                                    # show key -> the one spelling used for a show not in the library
     coll_of = coll_of or {}
@@ -449,7 +463,7 @@ def classify(posts, root, creator, aliases, show_filter=None, terms=(), coll_of=
             # the title's own show wins when it names an existing folder of this creator: a "Marvel Cinematic
             # Universe" collection holds Daredevil episodes, and those belong in Daredevil
             title_hint = info.get("hint", "")
-            own_matches = rr.find_show(title_hint, library_idx, aliases, creator) if title_hint else []
+            own_matches = find_show(title_hint) if title_hint else []
             if len(own_matches) != 1:
                 info["hint"] = coll
 
@@ -464,7 +478,7 @@ def classify(posts, root, creator, aliases, show_filter=None, terms=(), coll_of=
             if named_show:                                 # a show named without an episode number: "AOT OVA 4", "... with my Girlfriend"
                 if show_filter and rr.key(show_filter) != rr.key(named_show):
                     continue
-                candidates = rr.find_show(named_show, library_idx, aliases, creator)
+                candidates = find_show(named_show)
                 # report under the folder's name (JJK, not Jujutsu Kaisen)
                 show = candidates[0][1].name if len(candidates) == 1 else named_show
                 status = "missing" if candidates else "new show"
@@ -475,14 +489,15 @@ def classify(posts, root, creator, aliases, show_filter=None, terms=(), coll_of=
                 if show_filter and rr.key(show_filter) != "movies":
                     continue
                 movie_name = rr.movie_title(title + ".mp4")
-                already_there = rr.movie_present(Path(root, creator, "Movies"), movie_name)
+                movie_dirs = [folder / "Movies" for folder in creator_dirs] or [Path(root, creator, "Movies")]
+                already_there = any(rr.movie_present(movies, movie_name) for movies in movie_dirs)
                 rows.append(("have" if already_there else "missing", "Movies", pid, title, url, movie_name))
             else:
                 rows.append(("other", info.get("hint", ""), pid, title, url, info.get("note", "")))
             continue
 
         # -- 2c. an episode: find its show folder --
-        candidates = rr.find_show(info["hint"], library_idx, aliases, creator)
+        candidates = find_show(info["hint"])
         if len(candidates) == 1:
             show = candidates[0][1].name
         else:                                              # new show: one name per show key ("x-men '97" = "xmen 97")
@@ -501,6 +516,8 @@ def classify(posts, root, creator, aliases, show_filter=None, terms=(), coll_of=
         last_episode = info["e2"] or info["e1"]
         wanted = {(info["season"], e) for e in range(info["e1"], last_episode + 1)}
         have = rr.episodes_present(candidates[0][1])
+        for other_dir in same_show_dirs.get(candidates[0][1], []):
+            have |= rr.episodes_present(other_dir)
 
         episode_label = f"S{info['season']:02d}E{info['e1']:02d}"
         if info["e2"]:
@@ -562,6 +579,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--root", required=True, help="library root, e.g. \\\\nas\\media\\reaction")
     parser.add_argument("--creator", required=True, help="creator folder in the library (as used by Download-Creator)")
+    parser.add_argument("--creator-folder", action="append", default=[], metavar="NAME",
+                        help="another spelling of the creator's folder in the library (repeatable). Spaces, case and "
+                             "punctuation are ignored anyway; this is for a name that differs by a letter")
     src = parser.add_mutually_exclusive_group(required=True)
     src.add_argument("--url", help="creator page, e.g. https://www.patreon.com/c/<name>/posts")
     src.add_argument("--list-file", help="post URL list (a collection, from Clean-Patreon-PlayList-HTML.ps1)")
@@ -684,7 +704,19 @@ def main():
         posts = [post for post in posts if version[post[0]] in kept_versions]
 
     # ---- 7. compare with the library and print the report ----
-    rows = classify(posts, args.root, args.creator, aliases, args.show, alias_terms(alias_file), coll_of)
+    # which library folders are this creator: a folder spelled differently would make every post look missing
+    creator_dirs = rr.creator_folders(args.root, [args.creator, *args.creator_folder])
+    if not creator_dirs:
+        print(f"!! no library folder matches the creator {args.creator!r}: every post will look new. If the folder "
+              f"is spelled differently, pass --creator-folder \"<its name>\". Creator folders in the library: "
+              + ", ".join(sorted(p.name for p in Path(args.root).iterdir() if p.is_dir())))
+    else:
+        print(f"library folders for {args.creator}: " + ", ".join(p.name for p in creator_dirs))
+        if len(creator_dirs) > 1:
+            print("!! more than one folder for this creator: both are read; merge them when you can")
+
+    rows = classify(posts, args.root, args.creator, aliases, args.show, alias_terms(alias_file), coll_of,
+                    args.creator_folder)
 
     # the download record and the never-keep list win over what the library holds today
     fetched_ids = ledger.fetched_post_ids(args.archive) if args.archive else set()

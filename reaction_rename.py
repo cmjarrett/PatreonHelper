@@ -301,8 +301,25 @@ def find_show(hint, idx, aliases, creator=None):
         candidates += [hit for hit in hits if hit not in candidates]
 
     if creator:
-        candidates = [c for c in candidates if c[0].lower() == creator.lower()]
+        # one name or several spellings of the same creator; compared like show names, so the library folder
+        # "SomeCreator" or "Some-Creator" is the creator "Some Creator"
+        names = [creator] if isinstance(creator, str) else list(creator)
+        wanted = {creator_key(name) for name in names}
+        candidates = [c for c in candidates if creator_key(c[0]) in wanted]
     return candidates
+
+
+def creator_key(name):
+    """Comparison key for creator folder names: letters and digits only, so spaces, case, apostrophes and
+    hyphens don't matter ("Some Creator" = "SomeCreator" = "some-creator"). A name with no Latin letters or
+    digits at all falls back to its lower-case text."""
+    return key(name) or name.strip().lower()
+
+
+def creator_folders(root, names):
+    """The library's creator folders that match any of the names, in name order."""
+    wanted = {creator_key(name) for name in names if name}
+    return sorted(p for p in Path(root).iterdir() if p.is_dir() and creator_key(p.name) in wanted)
 
 
 def episodes_present(show_dir):
@@ -412,7 +429,19 @@ def main():
     idx, display = library_index(args.root, aliases)
 
     # ---- 3. the files to look at ----
-    creators = {c.name.lower(): c.name for c in Path(args.root).iterdir() if c.is_dir()}
+    creator_dirs = sorted(c.name for c in Path(args.root).iterdir() if c.is_dir())
+    exact_creators = {name.lower(): name for name in creator_dirs}
+    loose_creators = {}
+    for name in creator_dirs:
+        loose_creators.setdefault(creator_key(name), name)
+
+    def library_creator(name):
+        """The library's folder for a creator name: the same name first, else the same name without spaces and
+        punctuation ("Some Creator" finds "SomeCreator", so no second folder is made); else the name as given."""
+        if not name:
+            return name
+        return exact_creators.get(name.lower()) or loose_creators.get(creator_key(name), name)
+
     if args.src:
         # downloads may sit in per-creator folders (yt-dlp -o "%(uploader)s/..."): the folder names the creator
         files = [p for p in Path(args.src).rglob("*") if p.is_file() and p.suffix.lower() in VIDEO]
@@ -447,10 +476,10 @@ def main():
         else:
             # the inbox sub-folder names the creator (patreon_download.ps1 -Creator), even one new to the library
             if video.parent != Path(args.src):
-                folder_creator = creators.get(video.parent.name.lower(), video.parent.name)
+                folder_creator = library_creator(video.parent.name)
             else:
                 folder_creator = None
-            creator = creators.get((args.creator or "").lower(), args.creator) or folder_creator
+            creator = library_creator(args.creator) or folder_creator
             candidates = find_show(info["hint"], idx, aliases, creator)
 
         # -- 4c. no episode number: a movie for the creator's Movies folder, else REVIEW --

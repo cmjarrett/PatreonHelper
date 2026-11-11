@@ -162,6 +162,13 @@ with tempfile.TemporaryDirectory() as tmp:
     check("new creator: show needs --new-shows", "re-run with --new-shows" in out, True)
     check("movie creator: new movie -> Movies/<title>", "Movie Creator/Movies/Dune - Part Two (2024).mp4" in out, True)
     check("movie creator: existing title skipped", "movie already there" in out, True)
+    # the inbox folder and the library folder spell the creator differently: file into the folder that exists,
+    # never make a second one
+    spelled = Path(tmp, "inbox3")
+    Path(spelled, "Movie-Creator").mkdir(parents=True)
+    Path(spelled, "Movie-Creator", "Full Length ｜ Frieren ｜ 1x06 [10].mp4").write_bytes(b"xx")
+    out = run("--src", str(spelled), "--new-shows").replace("\\", "/")
+    check("creator spelled differently: the existing folder is used", "-> Movie Creator/Frieren/Frieren - S01E06.mp4" in out, True)
     out = run("--src", str(nc), "--new-shows").replace("\\", "/")
     check("--new-shows creates the show folder", "New Creator/Frieren/Frieren - S01E05.mp4" in out, True)
     run("--src", str(nc), "--new-shows", "--apply")
