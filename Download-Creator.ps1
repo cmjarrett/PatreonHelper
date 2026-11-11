@@ -32,6 +32,7 @@ param(
     [ValidateSet('brave', 'chrome', 'chromium', 'edge', 'firefox', 'opera', 'safari', 'vivaldi', 'whale')]
     [string] $Browser = 'firefox',
     [int] $MaxDownloads = 0,                             # stop after this many downloads (0 = no limit); the rest waits for the next run
+    [switch] $IgnoreRecord,                             # download also what the archive says was fetched before (a refetch list)
     [switch] $Preview                                   # list what would be downloaded, download nothing
 )
 $ErrorActionPreference = 'Stop'
@@ -54,11 +55,15 @@ New-Item -ItemType Directory -Force -Path $dest, $archiveFolder | Out-Null
 # ---- 3. the yt-dlp arguments ----
 $ytArgs = @(
     '--cookies-from-browser', $Browser,
-    '--download-archive', $Archive,
     '--ignore-errors', '--no-abort-on-error',          # text/image posts have no media: skip them
     '--windows-filenames', '--trim-filenames', '180',
     '-o', (Join-Path $dest '%(title)s [%(id)s].%(ext)s')
 )
+
+# The archive makes yt-dlp skip every post it holds. A refetch list is made of exactly those posts, so
+# -IgnoreRecord leaves the archive out; their ids are in it already, nothing needs writing.
+if ($IgnoreRecord -and -not $ListFile) { throw '-IgnoreRecord needs -ListFile: on a creator page it would download every post again.' }
+if (-not $IgnoreRecord) { $ytArgs += @('--download-archive', $Archive) }
 
 # optional filters
 if ($Match) { $ytArgs += @('--match-filters', "title~='(?i)$Match'") }

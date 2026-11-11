@@ -35,8 +35,8 @@ try {
     $called = Join-Path $tmp 'called.txt'
     $stub = Join-Path $tmp 'Fake-Download.ps1'
     Set-Content -LiteralPath $stub -Value @"
-param([string] `$Creator, [string] `$ListFile, [string] `$Inbox, [string] `$Archive, [string] `$Browser, [int] `$MaxDownloads)
-Add-Content -LiteralPath '$called' -Value ("{0}|{1}|{2}" -f `$Creator, ((Get-Content `$ListFile) -join ','), `$MaxDownloads)
+param([string] `$Creator, [string] `$ListFile, [string] `$Inbox, [string] `$Archive, [string] `$Browser, [int] `$MaxDownloads, [switch] `$IgnoreRecord)
+Add-Content -LiteralPath '$called' -Value ("{0}|{1}|{2}{3}" -f `$Creator, ((Get-Content `$ListFile) -join ','), `$MaxDownloads, `$(if (`$IgnoreRecord) { '|past the record' }))
 "@
     $common = @{ Config = $config; Root = $root; Inbox = $inbox; Archive = $archive; NeverFile = $never
                  StateDir = $state; Offline = $true; Downloader = $stub }
@@ -52,7 +52,20 @@ Add-Content -LiteralPath '$called' -Value ("{0}|{1}|{2}" -f `$Creator, ((Get-Con
     Check 'a log is written' (@(Get-ChildItem (Join-Path $state 'logs') -Filter 'sync-*.log').Count -ge 1) $true
     Check 'nothing is filed into the library' (@(Get-ChildItem $root -Recurse -File).Count) 1
 
+    # -RefetchMajorityHeld: the fetched-before episode of a show the library mostly holds is fetched again, past the record.
+    # The library holds 1 of the show's 3 posts (33%), so 30 is "mostly" here and the default 65 is not.
+    Remove-Item -LiteralPath $called
+    & $sync @common -RefetchMajorityHeld *> $null
+    Check 'refetch: a show held 33% is left alone at the default 65' (Get-Content $called) 'Creator A|https://www.patreon.com/posts/503|0'
+    Remove-Item -LiteralPath $called
+    & $sync @common -RefetchMajorityHeld -HeldPercent 30 *> $null
+    Check 'refetch: the new post, then the fetched-before one past the record' ((Get-Content $called) -join ' ; ') 'Creator A|https://www.patreon.com/posts/503|0 ; Creator A|https://www.patreon.com/posts/502|0|past the record'
+    Remove-Item -LiteralPath $called
+    & $sync @common -RefetchMajorityHeld -HeldPercent 30 -ReportOnly *> $null
+    Check 'refetch with report only: the downloader is not called' (Test-Path $called) $false
+
     # a run that is still going holds the lock: the second one does nothing
+    Set-Content -LiteralPath $called -Value 'x'
     Remove-Item -LiteralPath $called
     Set-Content -LiteralPath (Join-Path $state 'sync.lock') -Value $PID
     & $sync @common *> $null

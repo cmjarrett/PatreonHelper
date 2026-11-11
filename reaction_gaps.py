@@ -418,10 +418,24 @@ def looks_like_movie(title, info, coll, movie_collection):
     return not title_ends_in_number
 
 
-def classify(posts, root, creator, aliases, show_filter=None, terms=(), coll_of=None):
+def classify(posts, root, creator, aliases, show_filter=None, terms=(), coll_of=None, creator_names=()):
     """One row per post: (status, show, post id, title, url, note).
-    status: have | missing | partial | new show | ambiguous | other."""
+    status: have | missing | partial | new show | ambiguous | other.
+    `creator_names`: other spellings of the creator's library folder. Folder names are compared without spaces,
+    case and punctuation anyway ("Some Creator" = "SomeCreator"); a name that differs by a letter goes here."""
     library_idx, _display = rr.library_index(root, aliases)
+    names = [creator, *creator_names]
+    creator_dirs = rr.creator_folders(root, names)         # every library folder that is this creator
+    same_show_dirs = {}                                    # show folder -> the same show in the creator's other folders
+
+    def find_show(hint):
+        """rr.find_show for this creator. The same show in two of the creator's folders is one show."""
+        found = rr.find_show(hint, library_idx, aliases, names)
+        if len(found) > 1 and len({rr.key(show_dir.name) for _, show_dir in found}) == 1:
+            same_show_dirs[found[0][1]] = [show_dir for _, show_dir in found[1:]]
+            return found[:1]
+        return found
+
     rows = []
     new_show_names = {}                                    # show key -> the one spelling used for a show not in the library
     coll_of = coll_of or {}
@@ -449,7 +463,7 @@ def classify(posts, root, creator, aliases, show_filter=None, terms=(), coll_of=
             # the title's own show wins when it names an existing folder of this creator: a "Marvel Cinematic
             # Universe" collection holds Daredevil episodes, and those belong in Daredevil
             title_hint = info.get("hint", "")
-            own_matches = rr.find_show(title_hint, library_idx, aliases, creator) if title_hint else []
+            own_matches = find_show(title_hint) if title_hint else []
             if len(own_matches) != 1:
                 info["hint"] = coll
 
@@ -464,7 +478,7 @@ def classify(posts, root, creator, aliases, show_filter=None, terms=(), coll_of=
             if named_show:                                 # a show named without an episode number: "AOT OVA 4", "... with my Girlfriend"
                 if show_filter and rr.key(show_filter) != rr.key(named_show):
                     continue
-                candidates = rr.find_show(named_show, library_idx, aliases, creator)
+                candidates = find_show(named_show)
                 # report under the folder's name (JJK, not Jujutsu Kaisen)
                 show = candidates[0][1].name if len(candidates) == 1 else named_show
                 status = "missing" if candidates else "new show"
@@ -475,14 +489,15 @@ def classify(posts, root, creator, aliases, show_filter=None, terms=(), coll_of=
                 if show_filter and rr.key(show_filter) != "movies":
                     continue
                 movie_name = rr.movie_title(title + ".mp4")
-                already_there = rr.movie_present(Path(root, creator, "Movies"), movie_name)
+                movie_dirs = [folder / "Movies" for folder in creator_dirs] or [Path(root, creator, "Movies")]
+                already_there = any(rr.movie_present(movies, movie_name) for movies in movie_dirs)
                 rows.append(("have" if already_there else "missing", "Movies", pid, title, url, movie_name))
             else:
                 rows.append(("other", info.get("hint", ""), pid, title, url, info.get("note", "")))
             continue
 
         # -- 2c. an episode: find its show folder --
-        candidates = rr.find_show(info["hint"], library_idx, aliases, creator)
+        candidates = find_show(info["hint"])
         if len(candidates) == 1:
             show = candidates[0][1].name
         else:                                              # new show: one name per show key ("x-men '97" = "xmen 97")
@@ -501,6 +516,8 @@ def classify(posts, root, creator, aliases, show_filter=None, terms=(), coll_of=
         last_episode = info["e2"] or info["e1"]
         wanted = {(info["season"], e) for e in range(info["e1"], last_episode + 1)}
         have = rr.episodes_present(candidates[0][1])
+        for other_dir in same_show_dirs.get(candidates[0][1], []):
+            have |= rr.episodes_present(other_dir)
 
         episode_label = f"S{info['season']:02d}E{info['e1']:02d}"
         if info["e2"]:
@@ -525,15 +542,29 @@ def classify(posts, root, creator, aliases, show_filter=None, terms=(), coll_of=
 DOWNLOADABLE = ("missing", "partial", "new show", "ambiguous")
 
 
-def apply_ledger(rows, fetched_ids=(), never_keys=(), coll_titles=None):
+def apply_ledger(rows, fetched_ids=(), never_keys=(), coll_titles=None, refetch_percent=0):
     """Re-label the posts that must not be downloaded, whatever the library holds today:
       never keep       the post's show (or its Patreon collection) is on the never-keep list ('*' = everything)
       fetched before   the post id is in the download record: it was downloaded once, and a file that was deleted
                        from the library since is not a reason to fetch it again
+      refetch          fetched before, but the library holds at least refetch_percent of the show's posts
+                       (0 = never): listed apart, to be downloaded again past the record
     Rows keep their shape: (status, show, post id, title, url, note)."""
     fetched_ids = set(fetched_ids)
     never_keys = set(never_keys)
     coll_titles = coll_titles or {}
+    # how much of each show the library holds, in posts: have / (have + missing), before the record is applied
+    held = defaultdict(lambda: [0, 0])                     # show -> [have, missing]
+    for row in rows:
+        if row[0] in ("have", "missing"):
+            held[row[1]][row[0] == "missing"] += 1
+
+    def mostly_held(show):
+        """True when --refetch-held is on and the library holds at least that share of the show. Movies is a
+        folder of unrelated titles, not a show: never."""
+        have, missing = held[show]
+        return bool(refetch_percent) and show != "Movies" and have * 100 >= refetch_percent * (have + missing)
+
     relabelled = []
     for row in rows:
         status, show, post_id = row[0], row[1], row[2]
@@ -544,7 +575,8 @@ def apply_ledger(rows, fetched_ids=(), never_keys=(), coll_titles=None):
             if "*" in never_keys or names & never_keys:
                 status = "never keep"
             elif post_id in fetched_ids:
-                status = "fetched before"
+                # a few episodes gone from a show you otherwise keep were probably lost, not deleted on purpose
+                status = "refetch" if status == "missing" and mostly_held(show) else "fetched before"
         relabelled.append((status,) + tuple(row[1:]))
     return relabelled
 
@@ -562,6 +594,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--root", required=True, help="library root, e.g. \\\\nas\\media\\reaction")
     parser.add_argument("--creator", required=True, help="creator folder in the library (as used by Download-Creator)")
+    parser.add_argument("--creator-folder", action="append", default=[], metavar="NAME",
+                        help="another spelling of the creator's folder in the library (repeatable). Spaces, case and "
+                             "punctuation are ignored anyway; this is for a name that differs by a letter")
     src = parser.add_mutually_exclusive_group(required=True)
     src.add_argument("--url", help="creator page, e.g. https://www.patreon.com/c/<name>/posts")
     src.add_argument("--list-file", help="post URL list (a collection, from Clean-Patreon-PlayList-HTML.ps1)")
@@ -576,6 +611,10 @@ def main():
     parser.add_argument("--seed-archive", help="append 'patreon <id>' for posts you already have to this yt-dlp archive")
     parser.add_argument("--archive", help="the download record (yt-dlp's archive file): a post in it was fetched once and "
                         "is left out of the missing list, also when its file was deleted from the library since")
+    parser.add_argument("--refetch-held", type=int, default=0, metavar="PERCENT",
+                        help="with --archive: when the library holds at least this share of a show's posts (e.g. 65), "
+                             "its episodes that were fetched before but are gone are written to <out>-refetch.txt "
+                             "(download that list with Download-Creator.ps1 -IgnoreRecord). Not for Movies. 0 = off")
     parser.add_argument("--never", action="append", default=[], metavar="SHOW",
                         help="never download this show (library folder or Patreon collection name; repeatable)")
     parser.add_argument("--never-file", help="the never-keep list ('Creator | Show' per line, see reaction_ledger.py)")
@@ -684,7 +723,19 @@ def main():
         posts = [post for post in posts if version[post[0]] in kept_versions]
 
     # ---- 7. compare with the library and print the report ----
-    rows = classify(posts, args.root, args.creator, aliases, args.show, alias_terms(alias_file), coll_of)
+    # which library folders are this creator: a folder spelled differently would make every post look missing
+    creator_dirs = rr.creator_folders(args.root, [args.creator, *args.creator_folder])
+    if not creator_dirs:
+        print(f"!! no library folder matches the creator {args.creator!r}: every post will look new. If the folder "
+              f"is spelled differently, pass --creator-folder \"<its name>\". Creator folders in the library: "
+              + ", ".join(sorted(p.name for p in Path(args.root).iterdir() if p.is_dir())))
+    else:
+        print(f"library folders for {args.creator}: " + ", ".join(p.name for p in creator_dirs))
+        if len(creator_dirs) > 1:
+            print("!! more than one folder for this creator: both are read; merge them when you can")
+
+    rows = classify(posts, args.root, args.creator, aliases, args.show, alias_terms(alias_file), coll_of,
+                    args.creator_folder)
 
     # the download record and the never-keep list win over what the library holds today
     fetched_ids = ledger.fetched_post_ids(args.archive) if args.archive else set()
@@ -692,7 +743,7 @@ def main():
     if args.never_file:
         never_keys |= ledger.never_keys_for(args.never_file, args.creator)
     never_keys.discard("")
-    rows = apply_ledger(rows, fetched_ids, never_keys, coll_titles)
+    rows = apply_ledger(rows, fetched_ids, never_keys, coll_titles, args.refetch_held)
 
     by_show = defaultdict(lambda: defaultdict(list))       # show -> status -> [note or title]
     for status, show, pid, title, url, note in rows:
@@ -710,7 +761,7 @@ def main():
         counts = ", ".join(f"{status} {len(items)}" for status, items in sorted(by_status.items()))
         print(f"{show}: {counts}")
 
-        for status in ("missing", "partial", "new show", "ambiguous"):
+        for status in ("missing", "refetch", "partial", "new show", "ambiguous"):
             items = by_status.get(status)
             if items:
                 more = " …" if len(items) > 12 else ""      # the first 12 only
@@ -734,12 +785,20 @@ def main():
     Path(f"{args.out}-review.txt").write_text("".join(f"{row[0]}\t{row[3]}\t{row[4]}\n" for row in to_review),
                                               encoding="utf-8")
 
+    # fetched before, but from a show the library mostly holds (--refetch-held): its own list, because the
+    # download has to go past the record. Always written, so an old list never outlives the run that made it.
+    to_refetch = [row for row in rows if row[0] == "refetch"]
+    Path(f"{args.out}-refetch.txt").write_text("".join(row[4] + "\n" for row in to_refetch), encoding="utf-8")
+
     fetched_before = sum(row[0] == "fetched before" for row in rows)
     never_keep = sum(row[0] == "never keep" for row in rows)
     if fetched_before or never_keep:
         print(f"\nleft out: {fetched_before} fetched before (in {args.archive}), {never_keep} on the never-keep list")
     print(f"\n{len(to_download)} posts to download -> {args.out}-missing.txt   ({len(to_review)} to look at -> {args.out}-review.txt)")
     print(f'Next: .\\Download-Creator.ps1 -Creator "{args.creator}" -ListFile {args.out}-missing.txt')
+    if to_refetch:
+        print(f"{len(to_refetch)} posts to fetch again (shows held {args.refetch_held}% or more) -> {args.out}-refetch.txt")
+        print(f'Next: .\\Download-Creator.ps1 -Creator "{args.creator}" -ListFile {args.out}-refetch.txt -IgnoreRecord')
     if args.include_new or args.include_movies:
         print("      then import with reaction_rename.py --src <downloads> --new-shows (creates new show / Movies folders)")
 

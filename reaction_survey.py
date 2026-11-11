@@ -34,13 +34,12 @@ def size_text(size):
     return f"{size / 2**30:.1f} GB" if size >= 2**30 else f"{size / 2**20:.0f} MB"
 
 
-def survey(root, creator, min_mb=20):
+def survey(root, creator, min_mb=20, other_names=()):
     """(folders, shows, findings): findings = {section: [(size, path)]}, shows = {show: [files, bytes, conventional]}."""
-    wanted = rr.key(creator)
-    folders = sorted(p for p in Path(root).iterdir() if p.is_dir() and rr.key(p.name) == wanted)
+    folders = rr.creator_folders(root, [creator, *other_names])
     shows = defaultdict(lambda: [0, 0, 0])
     findings = defaultdict(list)
-    episodes = defaultdict(list)                           # (show folder, season, episode) -> [(size, path)]
+    episodes = defaultdict(list)                           # (show key, season, episode) -> [(size, path)], across the folders
 
     for folder in folders:
         for dirpath, dirnames, filenames in os.walk(folder):
@@ -78,7 +77,7 @@ def survey(root, creator, min_mb=20):
                     shows[show][2] += 1
                     last = int(match[3] or match[2])
                     for episode in range(int(match[2]), last + 1):
-                        episodes[(folder / show, int(match[1]), episode)].append((size, file))
+                        episodes[(rr.key(show), int(match[1]), episode)].append((size, file))
                 elif not in_movies:                        # movie folders keep their titles
                     findings["naming"].append((size, file))
 
@@ -96,14 +95,17 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--root", required=True, help="library root (only read)")
     parser.add_argument("--creator", required=True, help="the creator folder; spelling, spaces and case don't matter")
+    parser.add_argument("--creator-folder", action="append", default=[], metavar="NAME",
+                        help="another spelling of the folder that differs by a letter (repeatable)")
     parser.add_argument("--min-mb", type=int, default=20, help="a video file smaller than this counts as unfinished (default 20)")
     parser.add_argument("--out", help="write every finding as TSV: section, bytes, path")
     parser.add_argument("--limit", type=int, default=40, help="lines printed per section (default 40; the TSV has all)")
     args = parser.parse_args()
 
-    folders, shows, findings = survey(args.root, args.creator, args.min_mb)
+    folders, shows, findings = survey(args.root, args.creator, args.min_mb, args.creator_folder)
     if not folders:
-        sys.exit(f"no folder matching {args.creator!r} under {args.root}")
+        existing = ", ".join(sorted(p.name for p in Path(args.root).iterdir() if p.is_dir()))
+        sys.exit(f"no folder matching {args.creator!r} under {args.root}. Folders there: {existing}")
 
     print("folders:")
     for folder in folders:
