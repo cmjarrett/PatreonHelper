@@ -21,7 +21,9 @@ For a scheduled run (Sync-Reactions.ps1 calls it this way):
                         added to it, so deleting a file later does not bring the post back
   --never-file <file>   the never-keep list (reaction_ledger.py never ...)
   --offline             use the saved <slug>.tsv listings, no Patreon request
-The plan is written to <out-dir>/sync-plan.json: per creator the download list and how many posts it holds.
+  --refetch-held 65     also list the fetched-before episodes of shows the library holds 65% or more of
+The plan is written to <out-dir>/sync-plan.json: per creator the download list and how many posts it holds, and
+the same for the refetch list.
 """
 import argparse
 import json
@@ -57,6 +59,9 @@ def main():
                         "before, and the posts the library already holds are added to it")
     parser.add_argument("--never-file", help="the never-keep list ('Creator | Show' per line)")
     parser.add_argument("--offline", action="store_true", help="use the saved listings in --out-dir, no Patreon request")
+    parser.add_argument("--refetch-held", type=int, default=0, metavar="PERCENT",
+                        help="also list, in <slug>-refetch.txt, the fetched-before episodes of shows the library holds "
+                             "at least this share of (e.g. 65); 0 = off")
     args = parser.parse_args()
 
     # ---- 2. which creators to run ----
@@ -107,6 +112,8 @@ def main():
             cmd += ["--archive", args.archive, "--seed-archive", args.archive]
         if args.never_file:
             cmd += ["--never-file", args.never_file]
+        if args.refetch_held:
+            cmd += ["--refetch-held", str(args.refetch_held)]
         # never these shows: the creator's own list and the defaults' together
         for show in list(defaults.get("exclude") or []) + list(creator_config.get("exclude") or []):
             cmd += ["--never", show]
@@ -142,7 +149,10 @@ def main():
         missing_list = out_dir / (creator_slug + "-missing.txt")
         if result.returncode == 0:
             urls = [line for line in missing_list.read_text(encoding="utf-8").splitlines() if line.strip()]
-            plan.append({"creator": name, "list": str(missing_list), "count": len(urls)})
+            refetch_list = out_dir / (creator_slug + "-refetch.txt")
+            refetch_urls = [line for line in refetch_list.read_text(encoding="utf-8").splitlines() if line.strip()]
+            plan.append({"creator": name, "list": str(missing_list), "count": len(urls),
+                         "refetch_list": str(refetch_list), "refetch_count": len(refetch_urls)})
             download_commands.append(f'.\\Download-Creator.ps1 -Creator "{name}" -ListFile {missing_list}')
         else:
             print(f"!! reaction_gaps failed for {name} (exit {result.returncode})")

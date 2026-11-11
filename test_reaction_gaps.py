@@ -201,6 +201,51 @@ with tempfile.TemporaryDirectory() as tmp:
     r = run(all_cmd + ["--root", str(Path(tmp, "not-mounted"))])
     check("unreachable library: stops, lists nothing", r.returncode != 0 and "not reachable" in r.stderr, True)
 
+# --refetch-held: episodes that were fetched before but are gone come back only for a show the library mostly holds
+with tempfile.TemporaryDirectory() as tmp:
+    root = Path(tmp, "reaction")
+    lib = {
+        "Creator A/Kept Show": [f"Kept Show - S01E0{n}.mp4" for n in (1, 2, 3)],     # 3 of 4 posts held: 75%
+        "Creator A/Dropped Show": ["Dropped Show - S01E01.mp4"],                     # 1 of 4 posts held: 25%
+        "Creator A/Movies": ["Jaws (1975).mp4", "Alien (1979).mp4", "Heat (1995).mp4"],
+    }
+    for d, files in lib.items():
+        Path(root, d).mkdir(parents=True)
+        for f in files:
+            Path(root, d, f).write_bytes(b"x")
+    post = lambda pid, title: (str(pid), title, f"https://www.patreon.com/posts/{pid}")
+    tsv = Path(tmp, "posts.tsv")
+    tsv.write_text("".join("\t".join(p) + "\n" for p in [
+        post(701, "Kept Show ｜ 1x1"), post(702, "Kept Show ｜ 1x2"), post(703, "Kept Show ｜ 1x3"),
+        post(704, "Kept Show ｜ 1x4"),                                               # fetched before, gone: refetch
+        post(711, "Dropped Show ｜ 1x1"),
+        post(712, "Dropped Show ｜ 1x2"), post(713, "Dropped Show ｜ 1x3"),           # fetched before, deleted on purpose
+        post(714, "Dropped Show ｜ 1x4"),                                            # never fetched: plain missing
+        post(721, "Jaws ｜ Movie Reaction"), post(722, "Alien ｜ Movie Reaction"), post(723, "Heat ｜ Movie Reaction"),
+        post(724, "Tron ｜ Movie Reaction"),                                         # fetched before; Movies is not a show
+    ]), encoding="utf-8")
+    arch = Path(tmp, "downloaded.txt")
+    arch.write_text("patreon 704\npatreon 712\npatreon 713\npatreon 724\n", encoding="utf-8")
+    out = Path(tmp, "gaps")
+    base = [sys.executable, str(HERE / "reaction_gaps.py"), "--root", str(root), "--creator", "Creator A",
+            "--from-tsv", str(tsv), "--out", str(out), "--include-movies", "--archive", str(arch)]
+    run = lambda cmd: subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    ids = lambda kind: sorted(u.rsplit("/", 1)[1] for u in Path(f"{out}-{kind}.txt").read_text(encoding="utf-8").split())
+
+    run(base)
+    check("refetch off: nothing to fetch again, the list is empty", (ids("missing"), ids("refetch")), (["714"], []))
+    r = run(base + ["--refetch-held", "65"])
+    check("refetch: only the mostly-held show's lost episode", ids("refetch"), ["704"])
+    check("refetch: the missing list is unchanged", ids("missing"), ["714"])
+    check("refetch: said in the report", "1 posts to fetch again (shows held 65% or more)" in r.stdout
+          and "-IgnoreRecord" in r.stdout and "left out: 3 fetched before" in r.stdout, True)
+    run(base + ["--refetch-held", "80"])
+    check("refetch: a show held 75% stays out at 80", ids("refetch"), [])
+    run(base + ["--refetch-held", "25"])
+    check("refetch: at 25 the other show comes in too, Movies never", ids("refetch"), ["704", "712", "713"])
+    run(base + ["--refetch-held", "65", "--never", "Kept Show"])
+    check("refetch: never keep wins", ids("refetch"), [])
+
 # The creator's folder in the library is spelled differently from the name in the config: that must not make every
 # post look missing
 with tempfile.TemporaryDirectory() as tmp:

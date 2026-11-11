@@ -36,6 +36,8 @@ param(
     [ValidateSet('brave', 'chrome', 'chromium', 'edge', 'firefox', 'opera', 'safari', 'vivaldi', 'whale')]
     [string] $Browser = 'firefox',
     [int] $MaxDownloads = 0,                            # per creator and run (0 = no limit)
+    [switch] $RefetchMajorityHeld,                      # also fetch again the fetched-before episodes of shows the library mostly holds
+    [ValidateRange(1, 100)] [int] $HeldPercent = 65,    # "mostly": the library holds at least this share of the show's posts
     [switch] $ReportOnly,                               # list and compare, download nothing
     [switch] $Offline,                                  # use the saved listings (no Patreon request)
     [string] $Downloader = (Join-Path $PSScriptRoot 'Download-Creator.ps1')   # for the tests
@@ -76,6 +78,7 @@ try {
     if ($Aliases) { $gapArgs += @('--aliases', $Aliases) }
     if ($Creator) { $gapArgs += @('--creator', $Creator) }
     if ($Offline) { $gapArgs += '--offline' }
+    if ($RefetchMajorityHeld) { $gapArgs += @('--refetch-held', "$HeldPercent") }
 
     $plan = Join-Path $StateDir 'sync-plan.json'
     Remove-Item -LiteralPath $plan -ErrorAction SilentlyContinue      # never act on an earlier run's plan
@@ -90,16 +93,28 @@ try {
     $todo = @(Get-Content -Raw -LiteralPath $plan -Encoding utf8 | ConvertFrom-Json)
     $summary = @()
     foreach ($item in $todo) {
+        # two lists per creator: the new posts, and (with -RefetchMajorityHeld) the ones to fetch again.
+        # The second goes past the download record, which would otherwise skip every post in it.
+        $runs = @(@{ List = $item.list; Count = [int]$item.count; What = 'posts to download'; IgnoreRecord = $false })
+        $refetchCount = 0
+        if ($RefetchMajorityHeld) {
+            $refetchCount = [int]$item.refetch_count
+            $runs += @{ List = $item.refetch_list; Count = $refetchCount; IgnoreRecord = $true
+                        What = "posts to fetch again (shows held $HeldPercent% or more)" }
+        }
+
         $state = 'nothing new'
-        if ($item.count -gt 0 -and $ReportOnly) { $state = 'report only' }
-        elseif ($item.count -gt 0) {
-            Say "`n== $($item.creator): $($item.count) posts to download"
-            $dlArgs = @{ Creator = $item.creator; ListFile = $item.list; Inbox = $Inbox; Archive = $Archive; Browser = $Browser }
+        foreach ($run in $runs) {
+            if ($run.Count -eq 0) { continue }
+            if ($ReportOnly) { $state = 'report only'; continue }
+            Say "`n== $($item.creator): $($run.Count) $($run.What)"
+            $dlArgs = @{ Creator = $item.creator; ListFile = $run.List; Inbox = $Inbox; Archive = $Archive; Browser = $Browser }
             if ($MaxDownloads -gt 0) { $dlArgs.MaxDownloads = $MaxDownloads }
+            if ($run.IgnoreRecord) { $dlArgs.IgnoreRecord = $true }
             try {
                 $ErrorActionPreference = 'Continue'     # yt-dlp reports posts it can't open on stderr and goes on
                 & $Downloader @dlArgs *>&1 | ForEach-Object { Say "$_" }
-                $state = 'download run'
+                if ($state -ne 'failed') { $state = 'download run' }
             }
             catch {
                 Say "!! $($item.creator): $_"
@@ -107,7 +122,7 @@ try {
             }
             finally { $ErrorActionPreference = 'Stop' }
         }
-        $summary += [pscustomobject]@{ Creator = $item.creator; ToDownload = $item.count; Result = $state }
+        $summary += [pscustomobject]@{ Creator = $item.creator; ToDownload = $item.count; ToRefetch = $refetchCount; Result = $state }
     }
 
     # ---- 4. summary ----

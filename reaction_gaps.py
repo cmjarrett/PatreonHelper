@@ -542,15 +542,29 @@ def classify(posts, root, creator, aliases, show_filter=None, terms=(), coll_of=
 DOWNLOADABLE = ("missing", "partial", "new show", "ambiguous")
 
 
-def apply_ledger(rows, fetched_ids=(), never_keys=(), coll_titles=None):
+def apply_ledger(rows, fetched_ids=(), never_keys=(), coll_titles=None, refetch_percent=0):
     """Re-label the posts that must not be downloaded, whatever the library holds today:
       never keep       the post's show (or its Patreon collection) is on the never-keep list ('*' = everything)
       fetched before   the post id is in the download record: it was downloaded once, and a file that was deleted
                        from the library since is not a reason to fetch it again
+      refetch          fetched before, but the library holds at least refetch_percent of the show's posts
+                       (0 = never): listed apart, to be downloaded again past the record
     Rows keep their shape: (status, show, post id, title, url, note)."""
     fetched_ids = set(fetched_ids)
     never_keys = set(never_keys)
     coll_titles = coll_titles or {}
+    # how much of each show the library holds, in posts: have / (have + missing), before the record is applied
+    held = defaultdict(lambda: [0, 0])                     # show -> [have, missing]
+    for row in rows:
+        if row[0] in ("have", "missing"):
+            held[row[1]][row[0] == "missing"] += 1
+
+    def mostly_held(show):
+        """True when --refetch-held is on and the library holds at least that share of the show. Movies is a
+        folder of unrelated titles, not a show: never."""
+        have, missing = held[show]
+        return bool(refetch_percent) and show != "Movies" and have * 100 >= refetch_percent * (have + missing)
+
     relabelled = []
     for row in rows:
         status, show, post_id = row[0], row[1], row[2]
@@ -561,7 +575,8 @@ def apply_ledger(rows, fetched_ids=(), never_keys=(), coll_titles=None):
             if "*" in never_keys or names & never_keys:
                 status = "never keep"
             elif post_id in fetched_ids:
-                status = "fetched before"
+                # a few episodes gone from a show you otherwise keep were probably lost, not deleted on purpose
+                status = "refetch" if status == "missing" and mostly_held(show) else "fetched before"
         relabelled.append((status,) + tuple(row[1:]))
     return relabelled
 
@@ -596,6 +611,10 @@ def main():
     parser.add_argument("--seed-archive", help="append 'patreon <id>' for posts you already have to this yt-dlp archive")
     parser.add_argument("--archive", help="the download record (yt-dlp's archive file): a post in it was fetched once and "
                         "is left out of the missing list, also when its file was deleted from the library since")
+    parser.add_argument("--refetch-held", type=int, default=0, metavar="PERCENT",
+                        help="with --archive: when the library holds at least this share of a show's posts (e.g. 65), "
+                             "its episodes that were fetched before but are gone are written to <out>-refetch.txt "
+                             "(download that list with Download-Creator.ps1 -IgnoreRecord). Not for Movies. 0 = off")
     parser.add_argument("--never", action="append", default=[], metavar="SHOW",
                         help="never download this show (library folder or Patreon collection name; repeatable)")
     parser.add_argument("--never-file", help="the never-keep list ('Creator | Show' per line, see reaction_ledger.py)")
@@ -724,7 +743,7 @@ def main():
     if args.never_file:
         never_keys |= ledger.never_keys_for(args.never_file, args.creator)
     never_keys.discard("")
-    rows = apply_ledger(rows, fetched_ids, never_keys, coll_titles)
+    rows = apply_ledger(rows, fetched_ids, never_keys, coll_titles, args.refetch_held)
 
     by_show = defaultdict(lambda: defaultdict(list))       # show -> status -> [note or title]
     for status, show, pid, title, url, note in rows:
@@ -742,7 +761,7 @@ def main():
         counts = ", ".join(f"{status} {len(items)}" for status, items in sorted(by_status.items()))
         print(f"{show}: {counts}")
 
-        for status in ("missing", "partial", "new show", "ambiguous"):
+        for status in ("missing", "refetch", "partial", "new show", "ambiguous"):
             items = by_status.get(status)
             if items:
                 more = " …" if len(items) > 12 else ""      # the first 12 only
@@ -766,12 +785,20 @@ def main():
     Path(f"{args.out}-review.txt").write_text("".join(f"{row[0]}\t{row[3]}\t{row[4]}\n" for row in to_review),
                                               encoding="utf-8")
 
+    # fetched before, but from a show the library mostly holds (--refetch-held): its own list, because the
+    # download has to go past the record. Always written, so an old list never outlives the run that made it.
+    to_refetch = [row for row in rows if row[0] == "refetch"]
+    Path(f"{args.out}-refetch.txt").write_text("".join(row[4] + "\n" for row in to_refetch), encoding="utf-8")
+
     fetched_before = sum(row[0] == "fetched before" for row in rows)
     never_keep = sum(row[0] == "never keep" for row in rows)
     if fetched_before or never_keep:
         print(f"\nleft out: {fetched_before} fetched before (in {args.archive}), {never_keep} on the never-keep list")
     print(f"\n{len(to_download)} posts to download -> {args.out}-missing.txt   ({len(to_review)} to look at -> {args.out}-review.txt)")
     print(f'Next: .\\Download-Creator.ps1 -Creator "{args.creator}" -ListFile {args.out}-missing.txt')
+    if to_refetch:
+        print(f"{len(to_refetch)} posts to fetch again (shows held {args.refetch_held}% or more) -> {args.out}-refetch.txt")
+        print(f'Next: .\\Download-Creator.ps1 -Creator "{args.creator}" -ListFile {args.out}-refetch.txt -IgnoreRecord')
     if args.include_new or args.include_movies:
         print("      then import with reaction_rename.py --src <downloads> --new-shows (creates new show / Movies folders)")
 

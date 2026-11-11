@@ -102,6 +102,12 @@ show is not on the never-keep list:
 - `python .\reaction_ledger.py status` shows both files.
 - `-MaxDownloads N` limits each creator per run; the rest waits for the next run. Each run writes a log to
   `C:\patreon\sync\logs`, and a run that starts while another is still downloading ends at once.
+- **Fetch lost episodes again:** `-RefetchMajorityHeld` (with `-HeldPercent`, default 65). When the library holds at
+  least that share of a show's posts, the show's episodes that are in the download record but not in the library were
+  probably lost, not deleted on purpose: they are listed as `refetch`, written to `<creator>-refetch.txt` and
+  downloaded past the record (`Download-Creator.ps1 -ListFile <list> -IgnoreRecord`). A show you hold less of is left
+  alone, and so are `Movies` and never-keep shows. Use it for one run, with `-ReportOnly` first, and not on the
+  scheduled task: an episode you fetch again and then delete would come back on every run.
 - If the library is not reachable the run stops before listing: otherwise every post would look missing.
 - **The creator's folder name.** The gap finder, the renamer and the survey compare creator folder names without
   spaces, case and punctuation, so `Some Creator`, `SomeCreator` and `some-creator` are one creator, and two such
