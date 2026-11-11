@@ -201,6 +201,46 @@ with tempfile.TemporaryDirectory() as tmp:
     r = run(all_cmd + ["--root", str(Path(tmp, "not-mounted"))])
     check("unreachable library: stops, lists nothing", r.returncode != 0 and "not reachable" in r.stderr, True)
 
+# The creator's folder in the library is spelled differently from the name in the config: that must not make every
+# post look missing
+with tempfile.TemporaryDirectory() as tmp:
+    root = Path(tmp, "reaction")
+    lib = {
+        "SomeCreator/Vinland Saga": ["Vinland Saga - S01E01.mp4"],               # no space
+        "Some Creator/Vinland Saga": ["Vinland Saga - S01E02.mp4"],              # a second folder, the same show
+        "Some Creator/Movies": ["Jaws (1975).mp4"],
+        "Sum Creator/Loki": ["Loki - S01E01.mp4"],                               # differs by a letter
+        "Other Creator/Vinland Saga": ["Vinland Saga - S01E03.mp4"],             # somebody else's: must not count
+    }
+    for d, files in lib.items():
+        Path(root, d).mkdir(parents=True)
+        for f in files:
+            Path(root, d, f).write_bytes(b"x")
+    tsv = Path(tmp, "posts.tsv")
+    tsv.write_text("".join("\t".join(p) + "\n" for p in [
+        ("601", "Vinland Saga ｜ 1x1", "https://www.patreon.com/posts/601"),      # in SomeCreator
+        ("602", "Vinland Saga ｜ 1x2", "https://www.patreon.com/posts/602"),      # in Some Creator
+        ("603", "Vinland Saga ｜ 1x3", "https://www.patreon.com/posts/603"),      # only another creator has it
+        ("604", "Jaws ｜ Movie Reaction", "https://www.patreon.com/posts/604"),   # in Some Creator/Movies
+        ("605", "Loki ｜ 1x1", "https://www.patreon.com/posts/605"),              # in Sum Creator
+    ]), encoding="utf-8")
+    out = Path(tmp, "gaps")
+    base = [sys.executable, str(HERE / "reaction_gaps.py"), "--root", str(root), "--from-tsv", str(tsv), "--out", str(out),
+            "--include-new", "--include-movies"]
+    run = lambda cmd: subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    listed = lambda: sorted(u.rsplit("/", 1)[1] for u in Path(f"{out}-missing.txt").read_text(encoding="utf-8").split())
+
+    r = run(base + ["--creator", "some-creator"])                                # a third spelling, as in a config
+    check("creator folder: spaces, case and hyphens don't matter; two folders are read as one", listed(), ["603", "605"])
+    check("the report names the folders it read", "library folders for some-creator: Some Creator, SomeCreator" in r.stdout
+          and "more than one folder" in r.stdout, True)
+    r = run(base + ["--creator", "Some Creator", "--creator-folder", "Sum Creator"])
+    check("--creator-folder: a name that differs by a letter", listed(), ["603"])
+    r = run(base + ["--creator", "Sam Creator"])
+    check("no folder matches: said plainly, with the folders that exist", "no library folder matches" in r.stdout
+          and "Sum Creator" in r.stdout, True)
+    check("no folder matches: every post is listed (the warning is the point)", len(listed()), 5)
+
 # Streaming listing + resume, with a fake yt-dlp on PATH (POSIX only: Windows won't run a script named "yt-dlp")
 if sys.platform != "win32":
     import os

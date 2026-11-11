@@ -103,6 +103,11 @@ show is not on the never-keep list:
 - `-MaxDownloads N` limits each creator per run; the rest waits for the next run. Each run writes a log to
   `C:\patreon\sync\logs`, and a run that starts while another is still downloading ends at once.
 - If the library is not reachable the run stops before listing: otherwise every post would look missing.
+- **The creator's folder name.** The gap finder, the renamer and the survey compare creator folder names without
+  spaces, case and punctuation, so `Some Creator`, `SomeCreator` and `some-creator` are one creator, and two such
+  folders are read together. The report starts with `library folders for <creator>: ...`, or with a warning and the
+  list of folders that exist when none matches. A folder that differs by a letter needs naming:
+  `--creator-folder "Sum Creator"`, or `"folders": ["Sum Creator"]` for that creator in the creators JSON.
 - `Install-SyncTask.ps1` registers a Windows scheduled task that runs as you while you are logged on (it needs your
   browser's Patreon login and your access to the library). `-Remove` unregisters it.
 - A post that embeds a YouTube video is recorded by yt-dlp under the YouTube id, so the gap finder keeps listing it;
