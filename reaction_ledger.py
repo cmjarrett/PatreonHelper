@@ -31,8 +31,8 @@ DEFAULT_ARCHIVE = r"C:\patreon\downloaded.txt"
 DEFAULT_NEVER = r"C:\patreon\never-keep.txt"
 
 MEDIA = rr.VIDEO | {".m4a", ".mp3", ".opus"}
-# a post id in a Patreon URL: /posts/123456 or /posts/some-title-123456
-POST_URL_ID = re.compile(r"patreon\.com/posts/(?:[^\s/?#]*?-)?(\d+)(?=[\s/?#]|$)")
+# a post id in a Patreon URL: /posts/123456, /posts/some-title-123456 or /<creator>/posts/some-title-123456
+POST_URL_ID = re.compile(r"patreon\.com/(?:[^\s/?#]+/)?posts/(?:[^\s/?#]*?-)?(\d+)(?=[\s/?#]|$)")
 ARCHIVE_LINE = re.compile(r"^(patreon|youtube|vimeo)\s+(\S+)$", re.I)
 BARE_ID = re.compile(r"^\d{5,}$")
 FILE_ID = re.compile(r"\[([^\[\]]+)\]$")                # the "[id]" yt-dlp puts at the end of the file name

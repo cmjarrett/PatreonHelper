@@ -168,13 +168,15 @@ with tempfile.TemporaryDirectory() as tmp:
     check("seeded from the inbox: not listed again (the .part file is)", listed(), ["405"])
     urls = Path(tmp, "old-list.txt")
     urls.write_text("https://www.patreon.com/posts/other-show-1x1-405?utm=x\nhttps://www.patreon.com/posts/406\n"
-                    "patreon 407\n408000\nnot a post\n", encoding="utf-8")
+                    "patreon 407\n408000\nnot a post\nhttps://www.patreon.com/SomeCreator/posts/ce2-2x4-409\n",
+                    encoding="utf-8")
     r = run(ledger_cmd + ["seed", "--archive", str(arch), "--ids-from", str(urls)])
-    check("seed --ids-from: URLs with a title slug, bare URLs, record lines, bare ids", "added 4 to" in r.stdout, True)
+    check("seed --ids-from: URLs with a title slug or the creator in the path, bare URLs, record lines, bare ids",
+          "added 5 to" in r.stdout, True)
     run(gaps_cmd)
     check("everything fetched or seeded: nothing to download", listed(), [])
     r = run(ledger_cmd + ["status", "--archive", str(arch), "--file", str(never)])
-    check("status", "8 entries (patreon 7, youtube 1)" in r.stdout and "Creator A | Dull Show" in r.stdout, True)
+    check("status", "9 entries (patreon 8, youtube 1)" in r.stdout and "Creator A | Dull Show" in r.stdout, True)
 
     # reaction_gaps_all: exclude from the creators file, "sync": false, the plan, and the unreachable-library stop
     import json
