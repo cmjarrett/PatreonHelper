@@ -78,6 +78,41 @@ python .\reaction_gaps.py --root "\\nas\media\reaction" --creator "Some Creator"
 - **Full vs edited, per creator:** `Full Length` / `Unedited` / `Uncut` always mean the full reaction, `Edited |` and `(Cut Reaction)` the edited one, and a collection's name counts for its posts ("Severance (Full Length)", "Game Of Thrones (Early Access)"). Creators with their own words get `--full-marker "watch along"` / `--cut-marker "early access"`, and `--unmarked full` when it's the edited posts that are marked (Diegesis) rather than the full ones (Emme). In the creators JSON: `full_markers`, `cut_markers`, `unmarked`.
 - **All creators at once:** `python .\reaction_gaps_all.py --creators <your creators JSON> --root ... --aliases ...` runs the above per creator (handling `patreon` / `collections`, optional `include` list of collections), prints each creator's collections with post counts, and ends with the `Download-Creator.ps1` command per creator. Nothing is downloaded.
 
+### 1c. Run it on a schedule: `Sync-Reactions.ps1`
+One unattended run for every creator in your creators JSON: list the new posts, download them into the inbox, stop.
+It never files anything into the library; you look through the inbox and keep what you want.
+```powershell
+.\Sync-Reactions.ps1 -Config C:\private\reaction-creators.json -Root "\\nas\media\reaction" -ReportOnly   # list only
+.\Sync-Reactions.ps1 -Config C:\private\reaction-creators.json -Root "\\nas\media\reaction"
+.\Install-SyncTask.ps1 -Config C:\private\reaction-creators.json -Root "\\nas\media\reaction" -At 03:30 -Preview
+```
+A post is downloaded only when the library does not hold it, **and** its id is not in the download record, **and** its
+show is not on the never-keep list:
+- **The download record** is yt-dlp's archive file (`C:\patreon\downloaded.txt`, `patreon <post id>` per line). yt-dlp adds
+  every post it downloads; each run also adds the posts the library holds. Nothing ever removes a line. So a post you
+  downloaded, filed and later deleted is "fetched before" and does not come back. What is on disk today does not matter.
+- **Seed it** for downloads from before the record existed:
+  `python .\reaction_ledger.py seed --inbox C:\patreon\inbox` (ids in the file names) and
+  `python .\reaction_ledger.py seed --ids-from <file of post URLs>` (for example a creator's `-missing.txt` list, when you
+  have been through that creator and only want new posts from now on). `--dry-run` counts without writing.
+- **Never keep:** `python .\reaction_ledger.py never "Some Creator" "Some Show"` (or without a show: the whole creator;
+  `--remove` undoes it). The list is `C:\patreon\never-keep.txt`, one `Creator | Show` per line. The creators JSON can
+  carry the same as `"exclude": ["Some Show"]` per creator or in `_defaults`, and `"sync": false` leaves a creator out
+  of every run (not subscribed at the moment).
+- `python .\reaction_ledger.py status` shows both files.
+- `-MaxDownloads N` limits each creator per run; the rest waits for the next run. Each run writes a log to
+  `C:\patreon\sync\logs`, and a run that starts while another is still downloading ends at once.
+- If the library is not reachable the run stops before listing: otherwise every post would look missing.
+- `Install-SyncTask.ps1` registers a Windows scheduled task that runs as you while you are logged on (it needs your
+  browser's Patreon login and your access to the library). `-Remove` unregisters it.
+- A post that embeds a YouTube video is recorded by yt-dlp under the YouTube id, so the gap finder keeps listing it;
+  yt-dlp still skips it at download time.
+
+### 1d. Look at a creator's folder: `reaction_survey.py`
+`python .\reaction_survey.py --root "\\nas\media\reaction" --creator "Some Creator" --out survey.tsv` prints what the
+folder holds and what looks wrong: a second folder for the same creator under another spelling, unfinished downloads,
+the same episode twice, files outside the library naming, loose files, empty folders. It only reads.
+
 ### 2. File them: `reaction_rename.py`
 ```powershell
 python .\reaction_rename.py --root "\nas\media\reaction" --src C:\patreon\inbox             # dry run
